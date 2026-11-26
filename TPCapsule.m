@@ -1,4 +1,5 @@
 #import "TPCapsule.h"
+#import "TPDownloadManager.h"
 #import "TPUI.h"
 #import "TPPrefs.h"
 #import "TPLocalization.h"
@@ -36,12 +37,18 @@ static UIView *TPHolder(CGRect frame) {
     void (^_cancel)(void);
 }
 
+static NSMutableSet<NSString *> *sHostedTags;
+
 static void TPLayoutCapsules(BOOL animated) {
     UIWindow *win = TPKeyWindow();
     if (!win) return;
     CGFloat y = win.safeAreaInsets.top + 4;
     for (TPCapsule *c in sCapsules) {
         UIView *p = c->_pill;
+        BOOL hosted = c.tag.length && [sHostedTags containsObject:c.tag];
+        p.hidden = hosted;
+        c->_card.hidden = hosted;
+        if (hosted) continue;
         CGSize sz = p.bounds.size;
         CGRect pf = CGRectMake(round((win.bounds.size.width - sz.width) / 2), y, sz.width, kPillH);
         CGRect cf = CGRectZero;
@@ -55,6 +62,15 @@ static void TPLayoutCapsules(BOOL animated) {
         if (animated) [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.9 initialSpringVelocity:0 options:0 animations:apply completion:nil];
         else apply();
     }
+}
+
++ (void)setHostedTag:(NSString *)tag hosted:(BOOL)hosted {
+    if (!tag.length) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!sHostedTags) sHostedTags = [NSMutableSet set];
+        if (hosted) [sHostedTags addObject:tag]; else [sHostedTags removeObject:tag];
+        TPLayoutCapsules(NO);
+    });
 }
 
 + (instancetype)showWithTitle:(NSString *)title cancel:(void (^)(void))cancel {
@@ -72,7 +88,12 @@ static void TPLayoutCapsules(BOOL animated) {
     if (!sCapsules) sCapsules = [NSMutableArray array];
 
     _pill = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 120, kPillH)];
-    [_pill addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(pillTapped)]];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(pillTapped)];
+    UILongPressGestureRecognizer *hold = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(pillHeld:)];
+    hold.minimumPressDuration = 0.4;
+    [tap requireGestureRecognizerToFail:hold];
+    [_pill addGestureRecognizer:tap];
+    [_pill addGestureRecognizer:hold];
     UISwipeGestureRecognizer *up = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipedUp)];
     up.direction = UISwipeGestureRecognizerDirectionUp;
     [_pill addGestureRecognizer:up];
@@ -122,18 +143,18 @@ static void TPLayoutCapsules(BOOL animated) {
 - (void)refreshPill {
     if (!_pill) return;
     UIFont *font = _pillLabel.font;
-    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:_title ?: @""
+    NSString *title = _title ?: @"";
+    if (!title.length && (_finished || _progress < 0)) title = TPL(@"Downloading…");
+    NSMutableAttributedString *text = [[NSMutableAttributedString alloc] initWithString:title
         attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.whiteColor }];
     if (!_finished && _progress >= 0) {
-        [text appendAttributedString:[[NSAttributedString alloc] initWithString:@" · "
+        if (text.length) [text appendAttributedString:[[NSAttributedString alloc] initWithString:@" · "
             attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.whiteColor }]];
         [text appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"%.0f%%", floor(_progress * 100)]
             attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: [TPUI accentOnDark] }]];
     }
-    if (!_finished && _speed.length) {
-        [text appendAttributedString:[[NSAttributedString alloc] initWithString:[@" · " stringByAppendingString:_speed]
-            attributes:@{ NSFontAttributeName: font, NSForegroundColorAttributeName: TPMuted() }]];
-    }
+    // The speed is shown in the expanded card, under the file being downloaded, not in the pill:
+    // a wider pill covers the buttons at the top of the screen.
     _pillLabel.attributedText = text;
     UIWindow *win = TPKeyWindow();
     CGFloat maxW = (win ? win.bounds.size.width : 390) - 40;
@@ -179,7 +200,7 @@ static void TPLayoutCapsules(BOOL animated) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self->_finished) return;
         self->_speed = speed;
-        [self refreshPill];
+        if (self->_expanded) [self rebuildCard];
     });
 }
 
@@ -192,6 +213,13 @@ static void TPLayoutCapsules(BOOL animated) {
 }
 
 #pragma mark Card
+
+// Long-press: open the download manager.
+- (void)pillHeld:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    [TPUI hapticLight];
+    [TPDownloadManagerViewController present];
+}
 
 - (void)pillTapped {
     if (_finished) { [self dismiss]; return; }
@@ -257,8 +285,10 @@ static void TPLayoutCapsules(BOOL animated) {
         [content addSubview:[self label:r[@"status"] frame:CGRectMake(inset + w * 0.62, y, w * 0.38, kRowH) muted:st != 1 right:YES
                                   color:st == 3 ? UIColor.systemRedColor : (st == 1 ? [TPUI accentOnDark] : nil)]];
         y += kRowH;
-        if (st == 1 && _detail.length) {
-            UILabel *d = [self label:_detail frame:CGRectMake(inset + 24, y - 4, w - 24, 18) muted:YES right:NO color:nil];
+        NSString *detail = _detail.length && _speed.length ? [NSString stringWithFormat:@"%@ · %@", _detail, _speed]
+                         : (_detail.length ? _detail : _speed);
+        if (st == 1 && detail.length) {
+            UILabel *d = [self label:detail frame:CGRectMake(inset + 24, y - 4, w - 24, 18) muted:YES right:NO color:nil];
             d.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
             [content addSubview:d];
             y += 16;

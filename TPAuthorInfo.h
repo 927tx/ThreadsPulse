@@ -23,6 +23,10 @@ extern void (^TPAuthorOpenProfile)(NSString *username);    // set by the tweak: 
 + (NSTimeInterval)pausedRemaining;
 + (void)resume;
 + (void)clearCache;
+// For settings backup: the cached authors that were read successfully and haven't expired,
+// and merging a backup in (an entry replaces one that expires sooner). Returns how many merged.
++ (NSDictionary *)exportCache;
++ (NSInteger)importCache:(NSDictionary *)entries;
 + (NSUInteger)cachedCount;
 + (NSArray<NSDictionary *> *)allEntries;          // cached authors: pk, location / hidden, joined, number, u, n
 + (NSString *)flagForCountry:(NSString *)name;
@@ -31,5 +35,12 @@ extern void (^TPAuthorOpenProfile)(NSString *username);    // set by the tweak: 
 
 // Feed header integration: call from the header content view's layoutSubviews.
 + (void)layoutBadgeInHeader:(UIView *)contentView;
+// A feed post header's author and post: author, via (debug), code, mediaId (any may be missing).
++ (NSDictionary *)postInfoInHeader:(UIView *)contentView;
++ (NSString *)authorForPostCode:(NSString *)code;
++ (NSString *)usernameForPk:(NSString *)pk;
++ (NSString *)locationForUsername:(NSString *)username;   // cached country/region, or nil
++ (NSString *)pkForHeader:(UIView *)contentView;
++ (BOOL)isNewAccountForPk:(NSString *)pk;
 + (CGFloat)extraHeaderHeight;                     // added under the name in "own line" mode, else 0
 @end

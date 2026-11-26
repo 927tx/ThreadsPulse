@@ -2,7 +2,7 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-An iOS tweak for Threads (`com.burbn.barcelona`). Current version: **1.31.1**
+An iOS tweak for Threads (`com.burbn.barcelona`). Current version: **1.32.0**
 
 No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using GitHub Actions, then install it with your own signing tool.
 
@@ -15,18 +15,28 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 | | Block Analytics | Stop Threads from sending usage data such as what you view, how long you stay and what you tap. Recommendations may become less accurate (off by default) |
 | | Remove URL Tracking | Strip `xmt`, `igshid`, `utm_*` and more when copying, sharing or opening links, and unwrap `l.threads.com` redirects |
 | | Hide Buttons in Screenshots | ThreadsPulse buttons don't appear in screenshots or screen recordings |
-| Media Download | Download Button | ↓ at the top-right of a post: tap to download all photos and videos; long-press to choose photos or videos only |
+| Media Download | Download Button | ↓ at the top-right of a post: tap to download all photos and videos (several files at once); long-press to choose photos or videos only, see the post text or open the download manager |
+| | Thread Download Button | At the top-right of a thread page: tap to scroll through the whole thread and download every photo and video, replies included. Progress shows under the top bar; stop or cancel while it works, long-press to open the download manager |
+| | Download Manager | Active downloads, a queue (pause, reorder, remove), failed items to retry and history grouped by day; search by author or post code and filter by videos, photos or failed |
 | | Full-Screen Download | In full-screen view, ↓ sits next to "⋯": tap to save the image or video on screen; long-press to save all images or all videos in the post |
 | | Download Original Size | Fetches the highest resolution from the web version; WebP is converted to JPEG for Photos |
 | | Download Original Profile Pictures | Long-press the profile picture on a profile, or view it full screen and tap ↓ at the bottom right |
-| | Parallel Downloads | Downloads up to 4 files at a time when saving an entire post; the progress window shows the speed |
+| | Save Cover Photo | Long-press a profile's cover photo to save it |
 | | Save to "Threads" Album | Downloaded items are also added to a "Threads" album in Photos (needs Full Access to Photos; off by default) |
+| | Organize Albums by @Author | A separate "@author" album for each author instead of one "Threads" album (off by default) |
+| | Keep Copies in ThreadsPulse | Downloaded files are also kept in the download manager's library to preview, share or save again (off by default) |
+| | History Retention | Keep download history for 50 items / 100 items / 30 days / unlimited; files in Photos are never deleted |
+| | Warn About Duplicates | Asks before downloading a post that's already in the download history or queue |
+| | Name Files From Post | Files are named like `@author_20261126_153012_CODE_1.jpg`; File Name Format lets you pick the parts (author, country, date, time, code, number, "Threads"), their order, the separator and the date style, with a live preview |
+| | Use Post Time as Date | Saved photos and videos are dated when the post was published, so they sort by post time in Photos |
 | | Video Quality | Highest / 720p / Ask. Highest gets up to 1080p from Threads' DASH streams; VP9 and AV1 videos are converted on the device. Falls back to 720p if anything fails |
 | | Video Format | Keep HDR (HEVC 10-bit, HLG/PQ kept) or Compatible (H.264 SDR) |
 | Player | Disable Autoplay | Videos in the feed won't play until you tap them |
+| | Disable Music Autoplay | Music added to posts won't play by itself; tap the music to play it (off by default) |
 | | Default Playback Speed | 1x / 1.25x / 1.5x / 2x; videos return to it after you release a long-press 2x |
 | Home Feed | Keep Feed Position | Coming back from the background won't refresh the home feed, jump to the top or switch tabs. Keep for 10 min / 30 min / No Limit |
 | | Disable Pull to Refresh | Pulling down at the top of the home feed won't refresh it, and the feed stops at the top without bouncing |
+| | Mute Refresh Sound | No sound when the home feed refreshes, even if Threads turns its own sound setting back on (mainly happens on sideloaded installs) |
 | | When Tapping the Home Tab: Don't Scroll to Top | When you're scrolled down, tapping the Home tab keeps you where you were |
 | | When Tapping the Home Tab: Don't Refresh | When you're at the top, tapping the Home tab won't refresh or load new posts |
 | Author Info | Show Author Info | Shows details from the author's "About this profile" with their name in the feed (off by default) |
@@ -41,7 +51,10 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 | Hidden Items: Suggested Content | Suggested Accounts | Hide "Suggested for you" in the feed and on profiles |
 | | Search Suggestions | Hide "Suggested to follow" on the search page |
 | | Follow Suggestion Pop-ups | Stop "Follow suggestions" from popping up automatically |
+| | Instagram Connections Pop-ups | Stop "Follow your Instagram connections" from popping up automatically |
 | | Post Interest Prompts | Stop asking if you're interested in posts |
+| Hidden Items: Content Filters | Hide New Accounts | Hide feed posts from accounts joined within the last 2 months (requires Author Info) |
+| | Muted Keywords | Applies to the home feed and replies; supports keywords, @authors and /regex/ patterns (with examples), muted permanently, for 24 hours or for 7 days, with hit counts per rule and today's hidden count. A hidden post leaves a "1 post hidden · reason / Show" line |
 | Hidden Items: Interface Buttons | Search Button | Hide the search button on profiles (off by default) |
 | | Instagram Button | Hide the Instagram button on profiles (off by default) |
 | Links | Detect Copied Links | When you come back or switch accounts, detect a copied Threads link and open it |
@@ -55,13 +68,15 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 | Interface & Interactions | Like Confirmation | Ask before a like is sent, to prevent accidental taps. Removing a like won't ask |
 | | Post Time Format | Relative / Date / + Year / + Seconds (the example under the options shows each format) |
 | | Keep Tab Bar Visible | Scrolling won't hide the tab bar at the bottom |
+| | Post Text Menu | Long-press "⋯" at the top-right of a post, or choose Post Text in the download button's menu: select text, quick-translate, copy, or mute the author or a keyword; for a quoted post it reads the quoted post |
 | | Copy Profile Info | On a profile, long-press the name, username, bio or profile picture to copy the name, username or bio |
 | | Long-Press Home Tab for Settings | Long-pressing the Home tab at the bottom opens ThreadsPulse settings instead (on by default) |
-| Backup | Export / Import Settings | Export your settings to a JSON file, and import it after reinstalling or on another device |
+| Backup | Export / Import Settings | Export your settings, muted rules and the authors already read to a JSON file, and import it after reinstalling or on another device; choose whether to include muted rules and author info, which are merged with what you have on import |
 | Advanced | Debug Hints | Turn on when a feature stops working. Hints show which features are active, to help report problems |
+| | Clear Cache | Shows the cache size up front; Threads closes and the cache is cleared when you reopen it. Your login and settings are kept |
 | | Analytics Log | Shows the usage data Threads collects and what it contains: a ranking of events with plain-language descriptions and the latest payload of each, ready to copy. The log never leaves your device |
 | | Welcome Screen | See how to open ThreadsPulse settings again |
-| | What's New | See this version's new features again (shown once automatically after an update; it can turn on Author Info) |
+| | What's New | See this version's new features again (shown once automatically after an update) |
 | | Check for Updates Automatically | Checks GitHub once a day and shows an alert when a new version is out, with Download, Later and Skip This Version |
 | | Sideload Compatibility Fix | Keeps you signed in and app group data working after re-signing. Only active on re-signed apps |
 
@@ -69,7 +84,11 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 
 **Language**: in the same card, choose Follow System, English, 繁體中文, 简体中文, 日本語 or 한국어. ThreadsPulse's own text switches right away; Threads itself is unaffected.
 
-**About** (last row of the Backup / Advanced card on the main page, with the version beside it): shows the ThreadsPulse version, Threads version, bundle ID, device model and iOS version with its build number, with Copy All Info, Check for Updates, a link to the source on GitHub, and Report a Problem, which opens a new GitHub issue with this information filled in. Reset All Settings is at the bottom of this page.
+**Search Settings**: the search bar at the top of the settings page finds any setting.
+
+**Discussion Group**: "Join the Telegram Group" at the bottom of the settings page, to report bugs, suggest features or chat with other users.
+
+**About** (last row of the Backup / Advanced card on the main page, with the version beside it): shows the ThreadsPulse version, Threads version, bundle ID, device model and iOS version with its build number, with Copy All Info, Check for Updates, a link to the source on GitHub, and Report on GitHub, which opens a new GitHub issue with this information filled in. Reset All Settings is at the bottom of this page.
 
 **Settings**: tap **〰 Pulse** at the top-right of Threads' Settings page, long-press the Home tab at the bottom, or long-press anywhere with three fingers for 1 second. A welcome screen explains these the first time you open Threads.
 
@@ -144,8 +163,8 @@ Pushing to `main` / `master`, opening a pull request, or running **Build** → *
 Pushing a tag that starts with `v` also creates a Release with these four files (Threads itself is not included):
 
 ```bash
-git tag v1.31.1
-git push origin v1.31.1
+git tag v1.31.2
+git push origin v1.31.2
 ```
 
 ### Build locally
@@ -261,6 +280,10 @@ ThreadsPulse/
 - **Disable Autoplay**: when a feed video scrolls into view (`-[IGFNFVideoPlayer playWithReason:callsiteContext:]`, reason 1), Threads is allowed to start playback as usual so its UI (including the sound icon) appears, but the underlying `FNFPlayer` is held: its first `play` runs with volume 0 so Threads reaches "initial play" and shows the sound icon, then it is paused on the first frame (`videoPlayerDidInitialPlay:`); later `play` / `playWithContext:` calls are ignored. Tapping the video (a touch that barely moved, so scrolling doesn't count) releases the hold and starts `FNFPlayer`. Other play reasons (full screen, etc.) and videos outside the feed play as usual. Once started, the same player isn't held again until it's stopped. The single-video download button now reads the URL from nearby data objects first, so videos that never played can still be downloaded.
 - **Author Info**: calls Threads' own `BKSharedAsyncActionDataFetcher` with `com.bloks.www.text_post_app.about_this_profile_async_action` to get "About this profile", then reads the country (the `about_this_profile_country` state) and the "Joined" row from the returned Bloks layout. The request needs a `BKObjectSet` that carries the signed-in session: the `IGUserSession` and `PNPandoGraphQLService` are noted at launch and assembled into one (with an `IGSessionContext`); if the first try crashes this is disabled for good and the set Threads creates when it opens a Bloks screen is borrowed instead. The author ID is the Swift `userPk` of `BCNFeedItemHeaderProfilePicture`. Rate-limit protection: one author at a time, 1.5 s apart, at most 10 queued and 400 per launch; a 429, `feedback_required` or spam response pauses reading for 1 hour; results with a location are cached for 21 days, without one for 1 day. Own line: when `BCNFeedSectionController` builds the name row's cell its row is remembered, and `sizeForItemAtIndex:` adds one line of height before the section is re-laid out.
 - **Hide Follow Suggestions**: intercepts `presentViewController:` when `BCNUserRecommendationsViewController` is presented as a sheet; pushed pages aren't affected.
+- **Hide Instagram Connections**: same approach for `BCNRecommendedAccountsViewController` ("Follow your Instagram connections").
+- **Disable Music Autoplay**: post music plays through `IGAudioPlayer` / `IGStatelessAudioPlayer`. `startPlaybackWith:` is held unless the music row was just tapped; turning the speaker on (`setAudioEnabled:with:`) right after a tap starts a held player with its own start reason.
+- **Cover photo**: a long-press on `BCNProfileCoverPhotoView` reads the URL from its `BCNCoverPhotoView` → `IGImageView.imageSpecifier`, falling back to the image on screen.
+- **File names / post date**: the post time comes from the shortcode (Threads IDs are milliseconds since 2011-08-24 21:07:01.721 UTC, shifted left 23 bits); saved through `PHAssetCreationRequest` with `originalFilename` and `creationDate`.
 
 ## Notes
 

@@ -6,7 +6,7 @@
 
 static NSString *const kTPWelcomeShownKey = @"tp_welcome_shown";
 static NSString *const kTPWhatsNewKey     = @"tp_whats_new_seen";
-static NSString *const kTPWhatsNewVersion = @"1.30";   // bump with each release that has a What's New
+static NSString *const kTPWhatsNewVersion = @"1.32";   // bump with each release that has a What's New
 
 @interface TPWelcomeViewController ()
 @property (nonatomic) BOOL whatsNew;
@@ -26,6 +26,11 @@ static NSString *const kTPWhatsNewVersion = @"1.30";   // bump with each release
 // Retries a few times if another view controller is being presented at launch.
 + (void)presentIfNeeded {
     NSUserDefaults *d = [TPPrefs defaults];
+    // Updated from a version before 1.32 (the welcome was already seen on an earlier install):
+    // mark this release's new settings in the settings until they've been seen. Not on a new
+    // install, where everything is new. Decided once, on the first launch of this version.
+    if (![d objectForKey:@"tp_new_badges_1_32"])
+        [d setBool:[TPPrefs boolForKey:kTPWelcomeShownKey] forKey:@"tp_new_badges_1_32"];
     BOOL whatsNew = NO;
     if ([TPPrefs boolForKey:kTPWelcomeShownKey]) {
         if ([[d stringForKey:kTPWhatsNewKey] isEqualToString:kTPWhatsNewVersion]) return;
@@ -91,14 +96,14 @@ static NSString *const kTPWhatsNewVersion = @"1.30";   // bump with each release
     [stack setCustomSpacing:28 afterView:hero];
 
     if (self.whatsNew) {
-        [stack addArrangedSubview:[self cardWithSymbol:@"person.text.rectangle" title:TPL(@"Author Info")
-            detail:TPL(@"See an author's country, join date and join number right in the feed") accessory:nil]];
-        [stack addArrangedSubview:[self cardWithSymbol:@"arrow.down.to.line" title:TPL(@"Full-Screen Download")
-            detail:TPL(@"Save every image or video in a post while viewing it full screen") accessory:nil]];
-        [stack addArrangedSubview:[self cardWithSymbol:@"character.bubble" title:TPL(@"Five Languages")
-            detail:TPL(@"Simplified Chinese, Japanese and Korean added; switch in settings") accessory:nil]];
-        [stack addArrangedSubview:[self cardWithSymbol:@"film" title:TPL(@"Better Video Downloads")
-            detail:TPL(@"AV1 videos are converted automatically and finish even if you switch apps") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"tray.full" title:TPL(@"Download Manager")
+            detail:TPL(@"Follow downloads, retry failed ones and browse the files you saved") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"square.and.arrow.down.on.square" title:TPL(@"Download Thread")
+            detail:TPL(@"Save every photo and video in a thread, replies included, with one tap") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"text.badge.minus" title:TPL(@"Muted Keywords")
+            detail:TPL(@"Hide posts and replies by keyword, @author or /regex/, for good or for a while") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"text.quote" title:TPL(@"Post Text Menu")
+            detail:TPL(@"Long-press “⋯” on a post to select, translate, copy or mute its text") accessory:nil]];
     } else {
     UILabel *heading = [UILabel new];
     heading.text = TPL(@"How to Open Settings");
@@ -132,11 +137,8 @@ static NSString *const kTPWhatsNewVersion = @"1.30";   // bump with each release
     [_animated addObject:note];
     }
 
-    // What's New offers to turn on Author Info, the release's headline feature, which is off by default.
-    BOOL offerAuthor = self.whatsNew && ![TPPrefs boolForKey:TPKeyAuthorInfo];
-
     UIButton *primary = [UIButton buttonWithType:UIButtonTypeCustom];
-    [primary setTitle:TPL(self.whatsNew ? (offerAuthor ? @"Show Author Info" : @"Get Started") : @"Open ThreadsPulse Settings")
+    [primary setTitle:TPL(self.whatsNew ? @"Get Started" : @"Open ThreadsPulse Settings")
              forState:UIControlStateNormal];
     [primary setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     [primary setTitleColor:[UIColor colorWithWhite:1 alpha:0.6] forState:UIControlStateHighlighted];
@@ -149,7 +151,6 @@ static NSString *const kTPWhatsNewVersion = @"1.30";   // bump with each release
     [primary addAction:[UIAction actionWithHandler:^(UIAction *a) {
         [TPUI hapticLight];
         if (whatsNew) {
-            if (offerAuthor) [TPPrefs setBool:YES forKey:TPKeyAuthorInfo];
             [weakSelf dismissViewControllerAnimated:YES completion:nil];
             return;
         }
@@ -165,7 +166,7 @@ static NSString *const kTPWhatsNewVersion = @"1.30";   // bump with each release
         [weakSelf dismissViewControllerAnimated:YES completion:nil];
     }] forControlEvents:UIControlEventTouchUpInside];
 
-    if (self.whatsNew && !offerAuthor) later.hidden = YES;
+    if (self.whatsNew) later.hidden = YES;
     for (UIView *v in @[primary, later]) { v.translatesAutoresizingMaskIntoConstraints = NO; [bottom addSubview:v]; }
     [_animated addObject:bottom];
 

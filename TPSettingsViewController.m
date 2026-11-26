@@ -9,6 +9,7 @@
 #import "TPAuthorInfo.h"
 #import "TPAuthorStatsViewController.h"
 #import "TPUpdateChecker.h"
+#import "TPDownloadManager.h"
 #import <SafariServices/SafariServices.h>
 #import <sys/sysctl.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -33,6 +34,7 @@ static UIColor *TPHairlineColor(void) {
 static UIColor *TPKofiColor(void) {
     return [UIColor colorWithRed:1.00 green:0.37 blue:0.36 alpha:1];
 }
+static NSString *sTPCacheSize;   // last measured cache size, shown on the Clear Cache row
 static UIColor *TPAccent(void) { return [TPUI accent]; }
 static UIColor *TPAccentIcon(void) { return [TPUI accentIcon]; }
 
@@ -247,10 +249,366 @@ static NSString *TPTimePreview(NSInteger mode) {
 }
 @end
 
-@interface TPSettingsViewController () <UIDocumentPickerDelegate>
+static BOOL TPConditionMet(NSArray *cond);
+
+@interface TPMutedKeywordsViewController : UITableViewController
+@end
+
+// "File Name Format": which parts make up a saved file's name, their order, the separator and
+// the date style, with a live preview at the top.
+@interface TPFileNameFormatViewController : UITableViewController
+@end
+
+@implementation TPFileNameFormatViewController {
+    NSMutableArray<NSMutableDictionary *> *_parts;
+}
+
+- (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = TPL(@"File Name Format");
+    self.tableView.backgroundColor = [TPUI pageColor];
+    self.tableView.editing = YES;
+    self.tableView.allowsSelectionDuringEditing = YES;
+    [self loadParts];
+}
+
+- (void)loadParts {
+    _parts = [NSMutableArray array];
+    for (NSDictionary *p in [TPDownloader fileNameParts]) [_parts addObject:[p mutableCopy]];
+}
+
+- (void)saveParts {
+    [TPDownloader setFileNameParts:_parts];
+    [self reloadPreview];
+}
+
+- (void)reloadPreview {
+    [UIView performWithoutAnimation:^{
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
+    }];
+}
+
+static NSString *TPNamePartTitle(NSString *ident) {
+    NSDictionary *t = @{ @"author": @"@Author", @"date": @"Post Date", @"time": @"Post Time", @"code": @"Post Code",
+                         @"index": @"Number", @"country": @"Country", @"threads": @"\"Threads\"" };
+    return TPL(t[ident] ?: ident);
+}
+static NSString *TPNamePartDetail(NSString *ident) {
+    if ([ident isEqualToString:@"index"]) return TPL(@"Only when a post has more than one file");
+    if ([ident isEqualToString:@"country"]) return TPL(@"Only when Author Info has already read it");
+    return nil;
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 5; }
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)section { return section == 1 ? (NSInteger)_parts.count : 1; }
+
+- (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)section {
+    switch (section) {
+        case 0: return TPL(@"Preview");
+        case 1: return TPL(@"Parts");
+        case 2: return TPL(@"Separator");
+        case 3: return TPL(@"Date Format");
+    }
+    return nil;
+}
+- (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)section {
+    if (section == 1) return TPL(@"Tap a part to turn it on or off, and drag ≡ to change the order.");
+    return nil;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    UIListContentConfiguration *c = [UIListContentConfiguration subtitleCellConfiguration];
+    if (ip.section == 0) {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        c.text = [TPDownloader fileNameWithAuthor:@"threads.user" country:TPL(@"Taiwan") date:NSDate.date code:@"DMx7Qk2Lp9A"
+                                            index:0 count:2 label:nil extension:@"jpg"];
+        c.textProperties.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+        c.textProperties.numberOfLines = 0;
+    } else if (ip.section == 1) {
+        NSDictionary *p = _parts[ip.row];
+        BOOL on = [p[@"on"] boolValue];
+        c.text = TPNamePartTitle(p[@"id"]);
+        c.secondaryText = TPNamePartDetail(p[@"id"]);
+        c.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+        c.textProperties.color = on ? UIColor.labelColor : UIColor.secondaryLabelColor;
+        c.image = [UIImage systemImageNamed:on ? @"checkmark.circle.fill" : @"circle"];
+        c.imageProperties.tintColor = on ? TPAccent() : UIColor.tertiaryLabelColor;
+    } else if (ip.section == 2 || ip.section == 3) {
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        NSArray *items = ip.section == 2 ? @[@"_", @"-", TPL(@"Space")] : @[@"20261126", @"2026-11-26"];
+        UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:items];
+        seg.selectedSegmentIndex = [TPPrefs integerForKey:ip.section == 2 ? TPKeyNameSeparator : TPKeyNameDateStyle];
+        seg.tag = ip.section;
+        [seg addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
+        seg.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell.contentView addSubview:seg];
+        [NSLayoutConstraint activateConstraints:@[
+            [seg.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor],
+            [seg.trailingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.trailingAnchor],
+            [seg.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:10],
+            [seg.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-10],
+        ]];
+        return cell;
+    } else {
+        c.text = TPL(@"Reset to Default");
+        c.textProperties.color = TPAccent();
+        c.textProperties.alignment = UIListContentTextAlignmentCenter;
+    }
+    cell.contentConfiguration = c;
+    return cell;
+}
+
+- (void)segmentChanged:(UISegmentedControl *)seg {
+    [TPPrefs setInteger:seg.selectedSegmentIndex forKey:seg.tag == 2 ? TPKeyNameSeparator : TPKeyNameDateStyle];
+    [self reloadPreview];
+}
+
+- (BOOL)tableView:(UITableView *)tv canEditRowAtIndexPath:(NSIndexPath *)ip { return ip.section == 1; }
+- (BOOL)tableView:(UITableView *)tv canMoveRowAtIndexPath:(NSIndexPath *)ip { return ip.section == 1; }
+- (UITableViewCellEditingStyle)tableView:(UITableView *)tv editingStyleForRowAtIndexPath:(NSIndexPath *)ip { return UITableViewCellEditingStyleNone; }
+- (BOOL)tableView:(UITableView *)tv shouldIndentWhileEditingRowAtIndexPath:(NSIndexPath *)ip { return NO; }
+- (NSIndexPath *)tableView:(UITableView *)tv targetIndexPathForMoveFromRowAtIndexPath:(NSIndexPath *)from toProposedIndexPath:(NSIndexPath *)to {
+    if (to.section < 1) return [NSIndexPath indexPathForRow:0 inSection:1];
+    if (to.section > 1) return [NSIndexPath indexPathForRow:(NSInteger)_parts.count - 1 inSection:1];
+    return to;
+}
+- (void)tableView:(UITableView *)tv moveRowAtIndexPath:(NSIndexPath *)from toIndexPath:(NSIndexPath *)to {
+    NSMutableDictionary *p = _parts[from.row];
+    [_parts removeObjectAtIndex:from.row];
+    [_parts insertObject:p atIndex:to.row];
+    dispatch_async(dispatch_get_main_queue(), ^{ [self saveParts]; });
+}
+
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [tv deselectRowAtIndexPath:ip animated:YES];
+    if (ip.section == 1) {
+        NSMutableDictionary *p = _parts[ip.row];
+        p[@"on"] = @(![p[@"on"] boolValue]);
+        [tv reloadRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationNone];
+        [self saveParts];
+    } else if (ip.section == 4) {
+        [TPDownloader setFileNameParts:nil];
+        [TPPrefs setInteger:0 forKey:TPKeyNameSeparator];
+        [TPPrefs setInteger:0 forKey:TPKeyNameDateStyle];
+        [self loadParts];
+        [tv reloadData];
+    }
+}
+@end
+
+@interface UINavigationController (TPClose)
+- (void)tp_close;
+@end
+@implementation UINavigationController (TPClose)
+- (void)tp_close { [self dismissViewControllerAnimated:YES completion:nil]; }
+@end
+
+@implementation TPMutedKeywordsViewController {
+    NSMutableArray<NSString *> *_rules;
+}
+
+- (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = TPL(@"Muted Keywords");
+    self.tableView.backgroundColor = [TPUI pageColor];
+    UIBarButtonItem *addBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd
+                                                                            target:self action:@selector(addRule)];
+    __weak typeof(self) weak = self;
+    UIMenu *moreMenu = [UIMenu menuWithChildren:@[
+        [UIAction actionWithTitle:TPL(@"Reset Hit Counts") image:[UIImage systemImageNamed:@"arrow.counterclockwise"] identifier:nil handler:^(UIAction *a) {
+            [[TPPrefs defaults] removeObjectForKey:@"tp_filter_hit_counts"];
+            [weak.tableView reloadData];
+        }],
+        [UIAction actionWithTitle:TPL(@"Clear All Rules") image:[UIImage systemImageNamed:@"trash"] identifier:nil handler:^(UIAction *a) {
+            [weak confirmClearAll];
+        }]
+    ]];
+    UIBarButtonItem *moreBtn = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"ellipsis.circle"] menu:moreMenu];
+    self.navigationItem.rightBarButtonItems = @[addBtn, moreBtn];
+    [self loadRules];
+}
+
+- (void)loadRules {
+    _rules = [[TPPrefs mutedRules] mutableCopy];
+    [self.tableView reloadData];
+}
+
+- (void)saveRules {
+    [TPPrefs setMutedRules:_rules];
+}
+
+// Regex examples, tap one to add it. Each language has its own example words; the English
+// strings are the keys.
+static NSArray<NSArray<NSString *> *> *TPRegexExamples(void) {
+    return @[
+        @[@"/giveaway|free gift|DM me/", @"Any one of these words (| means \"or\")"],
+        @[@"/DM.{0,5}(earn|income)/", @"\"DM\" followed within 5 characters by \"earn\" or \"income\""],
+        @[@"/(LINE|WhatsApp)\\s*ID/", @"\"LINE ID\" or \"WhatsApp ID\", with or without a space"],
+        @[@"/save\\s*\\d+/", @"\"save\" followed by a number, e.g. \"save 50\", \"save50\""],
+        @[@"/https?:\\/\\/\\S+/", @"Posts that contain a link"],
+    ];
+}
+
+static NSString *TPRegexError(NSString *rule) {
+    if (!([rule hasPrefix:@"/"] && [rule hasSuffix:@"/"] && rule.length > 2)) return nil;
+    NSError *err = nil;
+    [NSRegularExpression regularExpressionWithPattern:[rule substringWithRange:NSMakeRange(1, rule.length - 2)] options:0 error:&err];
+    return err ? rule : nil;
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 2; }
+
+- (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
+    if (s == 1) return TPL(@"Regex Examples");
+    NSInteger n = [[TPPrefs filterStatsToday][@"count"] integerValue];
+    return n > 0 ? [NSString stringWithFormat:TPL(@"Hidden today: %ld"), (long)n] : nil;
+}
+
+- (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
+    if (s == 0) return _rules.count ? nil : TPL(@"No muted rules yet.\nTap + to add a keyword, @username, or /regex/.");
+    return TPL(@"Tap an example to add it. A regex goes between two slashes; | means \"or\".");
+}
+
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [tv deselectRowAtIndexPath:ip animated:YES];
+    if (ip.section != 1) return;
+    NSString *rule = TPL(TPRegexExamples()[ip.row][0]);
+    if ([_rules containsObject:rule]) { [TPHUD toast:TPL(@"Already added")]; return; }
+    [_rules insertObject:rule atIndex:0];
+    [self saveRules];
+    [tv reloadData];
+    [TPUI hapticLight];
+    [TPHUD toast:[NSString stringWithFormat:TPL(@"Muted %@"), rule]];
+}
+
+- (void)addRule {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:TPL(@"Add Muted Rule")
+                                                               message:TPL(@"Supports plain keywords, @username to mute an author, or /regex/ patterns.")
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = TPL(@"e.g. giveaway, @spammer, /promo\\d+/");
+        tf.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    // How long: permanent, or a temporary mute for a passing topic that lifts itself.
+    __weak UIAlertController *wa = a;
+    NSArray *choices = @[@[@"Mute Permanently", @0], @[@"Mute for 24 Hours", @(24 * 3600)], @[@"Mute for 7 Days", @(7 * 24 * 3600)]];
+    for (NSArray *c in choices) {
+        NSTimeInterval secs = [c[1] doubleValue];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(c[0]) style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *act) {
+            [self addRulesFromText:wa.textFields.firstObject.text duration:secs];
+        }]];
+    }
+    [a addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)addRulesFromText:(NSString *)text duration:(NSTimeInterval)secs {
+    NSString *val = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!val.length) return;
+    BOOL added = NO;
+    for (NSString *t in [TPPrefs parseMutedRules:val]) {
+        NSString *bad = TPRegexError(t);
+        if (bad) { [TPHUD toast:[NSString stringWithFormat:TPL(@"Invalid regex: %@"), bad]]; continue; }
+        if (![_rules containsObject:t]) [_rules insertObject:t atIndex:0];
+        // Adding an existing rule again sets its new time limit.
+        [TPPrefs setExpiry:secs > 0 ? [NSDate dateWithTimeIntervalSinceNow:secs] : nil forMutedRule:t];
+        added = YES;
+    }
+    if (added) {
+        [self saveRules];
+        [self.tableView reloadData];
+        [TPUI hapticLight];
+    }
+}
+
+// "5 h left" / "3 d left" for a temporary rule, nil for a permanent one.
+static NSString *TPRuleTimeLeft(NSString *rule) {
+    NSDate *end = [TPPrefs expiryForMutedRule:rule];
+    if (!end) return nil;
+    NSTimeInterval left = end.timeIntervalSinceNow;
+    if (left <= 0) return nil;
+    if (left < 3600) return [NSString stringWithFormat:TPL(@"%ld min left"), (long)MAX(1, ceil(left / 60))];
+    if (left < 48 * 3600) return [NSString stringWithFormat:TPL(@"%ld h left"), (long)ceil(left / 3600)];
+    return [NSString stringWithFormat:TPL(@"%ld d left"), (long)ceil(left / 86400)];
+}
+
+- (void)confirmClearAll {
+    if (!_rules.count) return;
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:TPL(@"Clear All Rules?")
+                                                               message:nil
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:TPL(@"Delete") style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *act) {
+        [self->_rules removeAllObjects];
+        [self saveRules];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return s == 1 ? TPRegexExamples().count : _rules.count; }
+
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"kw"] ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"kw"];
+    if (ip.section == 1) {
+        NSArray<NSString *> *ex = TPRegexExamples()[ip.row];
+        UIListContentConfiguration *c = [UIListContentConfiguration subtitleCellConfiguration];
+        c.text = TPL(ex[0]);
+        c.textProperties.font = [UIFont monospacedSystemFontOfSize:15 weight:UIFontWeightRegular];
+        c.secondaryText = TPL(ex[1]);
+        c.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+        c.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+        c.image = [UIImage systemImageNamed:@"plus.circle"];
+        cell.contentConfiguration = c;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        return cell;
+    }
+    NSString *rule = _rules[ip.row];
+    NSDictionary *hits = [[TPPrefs defaults] dictionaryForKey:@"tp_filter_hit_counts"];
+    NSInteger count = [hits[rule] integerValue];
+    NSString *kind = TPL(@"Keyword");
+    if ([rule hasPrefix:@"@"] && rule.length > 1) kind = TPL(@"Author");
+    else if ([rule hasPrefix:@"/"] && [rule hasSuffix:@"/"] && rule.length > 2) kind = TPL(@"Regex");
+
+    UIListContentConfiguration *c = [UIListContentConfiguration subtitleCellConfiguration];
+    c.text = rule;
+    NSString *sub = [NSString stringWithFormat:TPL(@"%@ · %ld hits"), kind, (long)count];
+    NSString *left = TPRuleTimeLeft(rule);
+    c.secondaryText = left ? [NSString stringWithFormat:@"%@ · %@", sub, left] : sub;
+    c.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+    c.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    cell.contentConfiguration = c;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    return cell;
+}
+
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tv trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)ip {
+    if (ip.section != 0) return nil;
+    UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:TPL(@"Delete")
+                                                                    handler:^(UIContextualAction *act, UIView *src, void (^done)(BOOL)) {
+        [self->_rules removeObjectAtIndex:ip.row];
+        [self saveRules];
+        [tv deleteRowsAtIndexPaths:@[ip] withRowAnimation:UITableViewRowAnimationAutomatic];
+        if (!self->_rules.count) [tv reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
+        done(YES);
+    }];
+    return [UISwipeActionsConfiguration configurationWithActions:@[del]];
+}
+
+@end
+
+@interface TPSettingsViewController () <UIDocumentPickerDelegate, UISearchBarDelegate>
+- (void)refreshCacheSize;
 @end
 
 @implementation TPSettingsViewController {
+    NSString *_downloadPercent;
+    BOOL _watchingDownloads;
     NSArray<NSDictionary *> *_sections;
     CGFloat _headerWidth;
     UIButton *_doneButton;
@@ -259,17 +617,26 @@ static NSString *TPTimePreview(NSInteger mode) {
     NSInteger _category;
     BOOL _showAbout;
     NSMutableDictionary<NSNumber *, NSArray *> *_shownRows;
+    // A plain search bar at the top of the list rather than a navigation-bar search controller:
+    // it looks and behaves the same on iOS 16–27 and doesn't jump or linger during push/pop
+    // (iOS 26 moves navigation search bars to the bottom and animates them between pages).
+    UISearchBar *_searchBar;
+    UIView *_headerBox;
+    NSArray<NSDictionary *> *_searchResults;
 }
 
 static NSArray<NSArray<NSString *> *> *TPRootGroups(void) {
-    return @[ @[@"Ads & Privacy", @"Media Download", @"Player", @"Home Feed"],
+    return @[ @[@"Download Manager"],
+              @[@"Ads & Privacy", @"Media Download", @"Player", @"Home Feed"],
               @[@"Author Info", @"Hidden Items", @"Links", @"Messages", @"Interface & Interactions"],
               @[@"Backup", @"Advanced", @"About"],
-              @[@"Donate"] ];
+              @[@"Telegram", @"Donate"] ];
 }
 
+static NSString *const kTPTelegramURL = @"https://t.me/h4x_0x30vmChat";
+
 static NSString *TPCategoryIcon(NSString *header) {
-    NSDictionary *m = @{ @"Ads & Privacy": @"shield", @"Media Download": @"arrow.down", @"Player": @"play.rectangle",
+    NSDictionary *m = @{ @"Download Manager": @"tray.full", @"Ads & Privacy": @"shield", @"Media Download": @"arrow.down", @"Player": @"play.rectangle",
                          @"Home Feed": @"house", @"Author Info": @"person.text.rectangle", @"Hidden Items": @"eye.slash", @"Links": @"link",
                          @"Messages": @"bubble.left.and.bubble.right", @"Interface & Interactions": @"slider.horizontal.3",
                          @"Backup": @"archivebox", @"Advanced": @"wrench.and.screwdriver", @"About": @"info.circle", @"Donate": @"cup.and.saucer" };
@@ -319,6 +686,21 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
         if ([TPPrefs boolForKey:row[@"key"]]) on++;
     }
     return total ? [NSString stringWithFormat:@"%ld／%ld", (long)on, (long)total] : nil;
+}
+
++ (void)presentMutedRules {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *top = TPTopViewController();
+        if (!top) return;
+        TPMutedKeywordsViewController *vc = [TPMutedKeywordsViewController new];
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+        nav.modalPresentationStyle = UIModalPresentationPageSheet;
+        nav.navigationBar.tintColor = TPAccent();
+        nav.view.tintColor = TPAccent();
+        vc.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
+                                                                                             target:nav action:@selector(tp_close)];
+        [top presentViewController:nav animated:YES completion:nil];
+    });
 }
 
 + (void)present {
@@ -392,17 +774,38 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
                   @"icon": @"square.dashed" },
            ]},
         @{ @"header": @"Media Download",
-           @"groups": @[@"Download Options", @"Video Downloads", @"Photo Downloads"],
+           @"groups": @[@"Download Options", @"Saved Files", @"Video Downloads", @"Photo Downloads"],
            @"rows": @[
                @{ @"type": @"switch", @"group": @"Download Options", @"key": TPKeyShowDownloadBtn, @"title": @"Download Button",
                   @"detail": @"Shows a download button on posts. Tap to download all photos and videos; long-press to download only photos or only videos.",
                   @"icon": @"arrow.down" },
-               @{ @"type": @"switch", @"group": @"Download Options", @"key": TPKeyParallelDownload, @"title": @"Parallel Downloads",
-                  @"detail": @"Downloads up to 4 files at a time when saving an entire post, reducing wait time.",
-                  @"icon": @"square.stack.3d.down.right" },
+               @{ @"type": @"switch", @"group": @"Download Options", @"key": TPKeyThreadDownloadBtn, @"title": @"Thread Download Button",
+                  @"detail": @"Adds a button to the top-right of a thread page. Tap it to collect every photo and video in the thread, replies included, and download them. Progress shows under the top bar; tap the button or the progress label while working to stop or cancel. Long-press the button to open the download manager.",
+                  @"icon": @"square.and.arrow.down.on.square", @"showIf": @[TPKeyShowDownloadBtn, @1] },
                @{ @"type": @"switch", @"group": @"Download Options", @"key": TPKeySaveToAlbum, @"title": @"Save to \"Threads\" Album",
                   @"detail": @"Downloaded items are also added to a \"Threads\" album in Photos. Full Photos access is required the first time.",
                   @"icon": @"rectangle.stack.badge.plus" },
+               @{ @"type": @"switch", @"group": @"Download Options", @"key": TPKeyAlbumByAuthor, @"title": @"Organize Albums by @Author",
+                  @"detail": @"Create a separate Photos album for each @author instead of a single \"Threads\" album.",
+                  @"icon": @"folder.badge.person.crop" },
+               @{ @"type": @"switch", @"group": @"Download Options", @"key": TPKeyKeepDownloadCopies, @"title": @"Keep Copies in ThreadsPulse",
+                  @"detail": @"Downloaded files are also kept here, so you can preview, share or save them again. Uses storage on your iPhone.",
+                  @"icon": @"externaldrive" },
+               @{ @"type": @"segment", @"group": @"Download Options", @"key": TPKeyDownloadHistoryLimit, @"title": @"History Retention", @"detail": @"",
+                  @"icon": @"clock.arrow.circlepath",
+                  @"segments": @[@"Unlimited", @"50 Items", @"100 Items", @"30 Days"],
+                  @"note": @"Automatically cleans oldest download history, thumbnails & copies kept in ThreadsPulse. Never deletes files saved in Photos." },
+               @{ @"type": @"switch", @"group": @"Saved Files", @"key": TPKeyDuplicateWarn, @"title": @"Warn About Duplicates",
+                  @"detail": @"Before downloading a post that's already in the download history, ask whether to download it again",
+                  @"icon": @"doc.on.doc" },
+               @{ @"type": @"switch", @"group": @"Saved Files", @"key": TPKeyNameFromPost, @"title": @"Name Files From Post",
+                  @"detail": @"Files are named from the post's author, time and code. The name shows in Photos info and when you share or export",
+                  @"icon": @"textformat" },
+               @{ @"type": @"action", @"group": @"Saved Files", @"action": @"nameFormat", @"title": @"File Name Format",
+                  @"icon": @"slider.horizontal.3", @"showIf": @[TPKeyNameFromPost, @1] },
+               @{ @"type": @"switch", @"group": @"Saved Files", @"key": TPKeyPostDate, @"title": @"Use Post Time as Date",
+                  @"detail": @"Photos and videos are dated when the post was published, so they sort by post time in Photos",
+                  @"icon": @"calendar" },
                @{ @"type": @"segment", @"group": @"Video Downloads", @"key": TPKeyVideoQuality, @"title": @"Video Quality", @"detail": @"",
                   @"icon": @"film",
                   @"segments": @[@"Highest", @"720p", @"Ask"],
@@ -424,9 +827,9 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
                @{ @"type": @"switch", @"key": TPKeyNoAutoplay, @"title": @"Disable Autoplay",
                   @"detail": @"Videos in the feed won't play until you tap them",
                   @"icon": @"play.slash" },
-               @{ @"type": @"switch", @"key": TPKeySwipeLockSpeed, @"title": @"Slide to Lock 2x",
-                  @"detail": @"While holding a video at 2x, a lock button appears at the bottom of the video. Slide your finger onto it to keep 2x after you let go; to unlock, long-press again and slide onto the same button",
-                  @"icon": @"lock" },
+               @{ @"type": @"switch", @"key": TPKeyNoMusicAutoplay, @"title": @"Disable Music Autoplay",
+                  @"detail": @"Music added to posts won't play by itself; tap the music to play it",
+                  @"icon": @"speaker.slash" },
                @{ @"type": @"segment", @"key": TPKeyPlaySpeed, @"title": @"Default Playback Speed", @"detail": @"",
                   @"icon": @"speedometer",
                   @"segments": @[@"1x", @"1.25x", @"1.5x", @"2x"] },
@@ -444,6 +847,9 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
                @{ @"type": @"switch", @"key": TPKeyNoPullRefresh, @"title": @"Disable Pull to Refresh",
                   @"detail": @"Pulling down at the top of the home feed won't refresh it, and the feed stops at the top without bouncing",
                   @"icon": @"arrow.down.to.line" },
+               @{ @"type": @"switch", @"key": TPKeyMuteRefreshSound, @"title": @"Mute Refresh Sound",
+                  @"detail": @"No sound when the home feed refreshes, even if Threads turns its own sound setting back on",
+                  @"icon": @"speaker.slash" },
                @{ @"type": @"caption", @"title": @"When Tapping the Home Tab" },
                @{ @"type": @"switch", @"key": TPKeyTabNoScrollTop, @"title": @"Don't Scroll to Top",
                   @"detail": @"When you're scrolled down the home feed, tapping the Home tab won't jump back to the top, so you stay where you were",
@@ -486,7 +892,7 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
                   @"icon": @"text.line.last.and.arrowtriangle.forward", @"showIf": @[TPKeyAuthorInfo, @1] },
            ]},
         @{ @"header": @"Hidden Items",
-           @"groups": @[@"Suggested Content", @"Interface Buttons"],
+           @"groups": @[@"Suggested Content", @"Content Filters", @"Interface Buttons"],
            @"rows": @[
                @{ @"type": @"switch", @"group": @"Suggested Content", @"key": TPKeyHideFeedSuggest, @"title": @"Suggested Accounts",
                   @"detail": @"Hide \"Suggested for you\" in the feed & on profiles",
@@ -497,6 +903,15 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
                @{ @"type": @"switch", @"group": @"Suggested Content", @"key": TPKeyHideFollowSuggest, @"title": @"Follow Suggestion Pop-ups",
                   @"detail": @"Stop \"Follow suggestions\" from popping up automatically",
                   @"icon": @"person.crop.circle.badge.xmark" },
+               @{ @"type": @"switch", @"group": @"Suggested Content", @"key": TPKeyHideIGConnections, @"title": @"Instagram Connections Pop-ups",
+                  @"detail": @"Stop \"Follow your Instagram connections\" from popping up automatically",
+                  @"icon": @"person.2.slash" },
+               @{ @"type": @"switch", @"group": @"Content Filters", @"key": TPKeyHideNewAccounts, @"title": @"Hide New Accounts",
+                  @"detail": @"Hide feed posts from accounts joined within the last 2 months (requires Author Info)",
+                  @"icon": @"person.crop.circle.badge.xmark" },
+               @{ @"type": @"action", @"group": @"Content Filters", @"action": @"editKeywords", @"title": @"Muted Keywords",
+                  @"detail": @"Hide feed posts and replies containing these words, from these @authors or matching /regex/ patterns",
+                  @"icon": @"text.badge.minus" },
                @{ @"type": @"switch", @"group": @"Suggested Content", @"key": TPKeyHidePostFeedback, @"title": @"Post Interest Prompts",
                   @"detail": @"Stop asking if you're interested in posts",
                   @"icon": @"hand.thumbsup" },
@@ -567,21 +982,31 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
                   @"icon": @"square.and.arrow.up" },
                @{ @"type": @"action", @"action": @"import", @"title": @"Import Settings", @"detail": @"",
                   @"icon": @"square.and.arrow.down" },
+               @{ @"type": @"caption", @"title": @"Also Include When Exporting" },
+               @{ @"type": @"switch", @"key": TPKeyBackupMutedRules, @"title": @"Muted Rules",
+                  @"detail": @"Keywords, @authors and /regex/ rules, with how long each is muted",
+                  @"icon": @"text.badge.minus" },
+               @{ @"type": @"switch", @"key": TPKeyBackupAuthors, @"title": @"Author Info",
+                  @"detail": @"Authors already read, so they don't have to be read again after reinstalling",
+                  @"icon": @"person.text.rectangle" },
            ]},
         @{ @"header": @"Advanced",
            @"rows": @[
                @{ @"type": @"switch", @"key": TPKeyDebugToast, @"title": @"Debug Hints",
                   @"detail": @"Turn on when a feature stops working. Hints show which features are active, to help report problems.",
                   @"icon": @"ladybug" },
-               @{ @"type": @"action", @"action": @"analyticsLog", @"title": @"Analytics Log",
-                  @"detail": @"Shows the usage data Threads collects and what it contains. The log never leaves your device",
-                  @"icon": @"chart.bar.doc.horizontal" },
+               @{ @"type": @"action", @"action": @"clearCache", @"title": @"Clear Cache",
+                  @"detail": @"Frees space used by images and videos. Your login and settings are kept",
+                  @"icon": @"trash" },
                @{ @"type": @"action", @"action": @"welcome", @"title": @"Welcome Screen",
                   @"detail": @"See how to open ThreadsPulse settings again",
                   @"icon": @"hand.wave" },
                @{ @"type": @"action", @"action": @"whatsNew", @"title": @"What's New",
                   @"detail": @"See what's new in this version",
                   @"icon": @"newspaper" },
+               @{ @"type": @"action", @"action": @"analyticsLog", @"title": @"Analytics Log",
+                  @"detail": @"Shows the usage data Threads collects and what it contains. The log never leaves your device",
+                  @"icon": @"chart.bar.doc.horizontal" },
                @{ @"type": @"switch", @"key": TPKeyAutoUpdateCheck, @"title": @"Check for Updates Automatically",
                   @"detail": @"Checks GitHub once a day and lets you know when a new version is out",
                   @"icon": @"arrow.triangle.2.circlepath" },
@@ -616,6 +1041,13 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
     ];
     _allSections = _sections;
     if (self.isRoot) {
+        _searchBar = [UISearchBar new];
+        _searchBar.searchBarStyle = UISearchBarStyleMinimal;
+        _searchBar.placeholder = TPL(@"Search settings");
+        _searchBar.delegate = self;
+        _searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        _searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+        self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
         _sections = @[];
         self.navigationItem.title = @"Pulse";
         self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
@@ -639,9 +1071,24 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
     }
 }
 
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    // Leaving a page (back to the list, not deeper into it) counts as having seen its new options.
+    if (!self.isRoot && (self.isMovingFromParentViewController || self.navigationController.isBeingDismissed))
+        TPMarkPageSeen(_allSections[_category][@"header"]);
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     if (self.isRoot) [self applyTheme];
+    else { [self refreshCacheSize]; [self.tableView reloadData]; }   // e.g. the muted rule count
+    if (self.isRoot && !_watchingDownloads) {
+        _watchingDownloads = YES;
+        NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+        for (NSString *name in @[TPDownloadStoreDidChangeNotification, TPDownloadProgressNotification, @"TPQueueChanged"])
+            [nc addObserver:self selector:@selector(downloadsChanged:) name:name object:nil];
+    }
+    if (self.isRoot) [self downloadsChanged:[NSNotification notificationWithName:@"refresh" object:nil]];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -696,8 +1143,26 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
             UIViewController *nav = weakSelf.navigationController ?: weakSelf;
             [nav.presentingViewController dismissViewControllerAnimated:YES completion:^{ [TPSettingsViewController present]; }];
         };
-        self.tableView.tableHeaderView = _header;
+        [_headerBox removeFromSuperview];
+        _headerBox = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 0)];
+        _searchBar.frame = CGRectMake(8, 0, w - 16, 52);
+        [_headerBox addSubview:_searchBar];
+        [_headerBox addSubview:_header];
+        [self layoutHeaderBox];
     }
+}
+
+// The search bar stays on top; the ThreadsPulse card under it hides while searching. The box is
+// resized in place (not replaced) so the search bar keeps the keyboard.
+- (void)layoutHeaderBox {
+    if (!_headerBox) return;
+    BOOL searching = self.isSearching;
+    _header.hidden = searching;
+    _header.frame = CGRectMake(0, 52, _headerBox.bounds.size.width, _header.bounds.size.height);
+    CGRect f = _headerBox.frame;
+    f.size.height = searching ? 52 : 52 + _header.bounds.size.height;
+    _headerBox.frame = f;
+    self.tableView.tableHeaderView = _headerBox;
 }
 
 - (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
@@ -708,6 +1173,7 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
         for (NSDictionary *row in sec[@"rows"])
             if ([row[@"type"] isEqualToString:@"switch"] && ![row[@"key"] isEqualToString:TPKeyDebugToast]
                 && ![row[@"key"] isEqualToString:TPKeyAutoUpdateCheck]
+                && ![row[@"key"] isEqualToString:TPKeyBackupMutedRules] && ![row[@"key"] isEqualToString:TPKeyBackupAuthors]
                 && [TPPrefs boolForKey:row[@"key"]]) n++;
     return n;
 }
@@ -722,12 +1188,57 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
     [self.tableView reloadData];
 }
 
+- (BOOL)isSearching {
+    return self.isRoot && _searchBar.text.length > 0;
+}
+
+- (void)searchBar:(UISearchBar *)bar textDidChange:(NSString *)text { [self runSearch]; }
+- (void)searchBarTextDidBeginEditing:(UISearchBar *)bar { [bar setShowsCancelButton:YES animated:YES]; }
+- (void)searchBarTextDidEndEditing:(UISearchBar *)bar { [bar setShowsCancelButton:bar.text.length > 0 animated:YES]; }
+- (void)searchBarSearchButtonClicked:(UISearchBar *)bar { [bar resignFirstResponder]; }
+- (void)searchBarCancelButtonClicked:(UISearchBar *)bar {
+    bar.text = @"";
+    [bar resignFirstResponder];
+    [bar setShowsCancelButton:NO animated:YES];
+    [self runSearch];
+}
+
+- (void)runSearch {
+    NSString *q = [_searchBar.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+    if (!q.length) {
+        _searchResults = nil;
+    } else {
+        NSMutableArray<NSDictionary *> *matches = [NSMutableArray array];
+        for (NSDictionary *sec in _allSections) {
+            NSString *hdr = sec[@"header"] ?: @"";
+            NSString *locHdr = hdr.length ? TPL(hdr) : @"";
+            for (NSDictionary *row in sec[@"rows"]) {
+                NSString *type = row[@"type"];
+                if ([type isEqualToString:@"caption"] || [type isEqualToString:@"info"]) continue;
+                // Rows hidden on their own page (their main switch is off) stay hidden here too.
+                if (!TPConditionMet(row[@"showIf"])) continue;
+                NSString *t = row[@"title"] ? TPL(row[@"title"]) : @"";
+                NSString *d = row[@"detail"] ? TPL(row[@"detail"]) : @"";
+                BOOL hit = ([t rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound) ||
+                           ([d rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound) ||
+                           ([locHdr rangeOfString:q options:NSCaseInsensitiveSearch].location != NSNotFound);
+                if (hit) [matches addObject:row];
+            }
+        }
+        _searchResults = matches;
+    }
+    [self layoutHeaderBox];
+    [self.tableView reloadData];
+}
+
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tv {
+    if (self.isSearching) return 1;
     if (self.isRoot) return TPRootGroups().count;
     return _sections.count + (_showAbout ? 1 : 0);
 }
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
+    if (self.isSearching) return _searchResults.count;
     if (self.isRoot) return TPRootGroups()[s].count;
     if (s >= (NSInteger)_sections.count) return 1;   // Reset All Settings (the version moved to the main page)
     NSArray *rows = [self visibleRowsInSection:s];
@@ -737,6 +1248,7 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
 }
 
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
+    if (self.isSearching) return _searchResults.count ? TPL(@"Search Results") : TPL(@"No matching settings");
     if (self.isRoot) return nil;
     if (s >= (NSInteger)_sections.count) return nil;
     NSString *g = _sections[s][@"groupTitle"];
@@ -744,20 +1256,33 @@ static UIImage *TPSquareIconWith(NSString *symbol, UIColor *bg, UIColor *fg) {
 }
 
 - (void)tableView:(UITableView *)tv willDisplayHeaderView:(UIView *)view forSection:(NSInteger)s {
-    if (self.isRoot || s >= (NSInteger)_sections.count || ![_sections[s][@"groupTitle"] length]) return;
+    if (self.isSearching || self.isRoot || s >= (NSInteger)_sections.count || ![_sections[s][@"groupTitle"] length]) return;
     if (![view isKindOfClass:[UITableViewHeaderFooterView class]]) return;
     UITableViewHeaderFooterView *h = (UITableViewHeaderFooterView *)view;
     h.textLabel.textColor = TPAccentIcon();
     h.textLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
 }
 
+// "Today N posts were hidden, most often for <reason>." under Content Filters (nothing on a day
+// without any).
+static NSString *TPFilterStatsFooter(void) {
+    NSDictionary *st = [TPPrefs filterStatsToday];
+    NSInteger n = [st[@"count"] integerValue];
+    if (n <= 0) return nil;
+    NSString *top = st[@"top"];
+    return top.length ? [NSString stringWithFormat:TPL(@"Today %ld posts were hidden, most often for %@."), (long)n, top]
+                      : [NSString stringWithFormat:TPL(@"Today %ld posts were hidden."), (long)n];
+}
+
 - (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
+    if (self.isSearching) return nil;
     if (self.isRoot) {
         if (s != (NSInteger)TPRootGroups().count - 1) return nil;
         NSString *f = [self sectionWithHeader:@"Donate"][@"footer"];
         return [NSString stringWithFormat:@"%@\n\nMade by h4x_0x30vm", f.length ? TPL(f) : @""];
     }
     if (s >= (NSInteger)_sections.count) return nil;
+    if ([_sections[s][@"groupTitle"] isEqualToString:@"Content Filters"]) return TPFilterStatsFooter();
     NSString *f = _sections[s][@"footer"];
     if (!TPConditionMet(_sections[s][@"footerIf"])) return nil;
     return f.length ? TPL(f) : nil;
@@ -790,11 +1315,13 @@ static BOOL TPConditionUsesKey(NSArray *cond, NSString *key) {
     return out;
 }
 
-- (NSDictionary *)rowAt:(NSIndexPath *)ip { return [self visibleRowsInSection:ip.section][ip.row]; }
+- (NSDictionary *)rowAt:(NSIndexPath *)ip {
+    if (self.isSearching) return _searchResults[ip.row]; return [self visibleRowsInSection:ip.section][ip.row]; }
 
 // Rows that depend on a setting are inserted or removed individually. Reloading the whole
 // section cross-fades the old and new rows and leaves a visible ghost.
 - (void)refreshConditionalRowsForKey:(NSString *)key {
+    if (self.isSearching) { [self runSearch]; return; }
     for (NSInteger sec = 0; sec < (NSInteger)_sections.count; sec++) {
         BOOL footerAffected = TPConditionUsesKey(_sections[sec][@"footerIf"], key);
         BOOL rowsAffected = NO;
@@ -999,9 +1526,136 @@ static NSArray<NSArray<NSString *> *> *TPAboutRows(void) {
     [TPHUD toast:TPL(@"Copied")];
 }
 
+// Download Manager row: the live state on the right (downloading %, queue, failures in red).
+- (NSAttributedString *)downloadStatusText {
+    NSMutableArray<NSAttributedString *> *parts = [NSMutableArray array];
+    NSDictionary *plain = @{ NSForegroundColorAttributeName: UIColor.secondaryLabelColor };
+    if ([TPDownloader activeRecordID]) {
+        NSString *t = _downloadPercent ? [NSString stringWithFormat:@"%@ %@", TPL(@"Downloading"), _downloadPercent] : TPL(@"Downloading");
+        [parts addObject:[[NSAttributedString alloc] initWithString:t attributes:@{ NSForegroundColorAttributeName: TPAccent() }]];
+    }
+    NSInteger queued = (NSInteger)[TPDownloader queuedRecordIDs].count;
+    if (queued) [parts addObject:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:TPL(@"%ld in queue"), (long)queued] attributes:plain]];
+    NSInteger failed = [TPDownloadStore failedRecordCount];
+    if (failed) [parts addObject:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:TPL(@"%ld failed"), (long)failed]
+                                                                  attributes:@{ NSForegroundColorAttributeName: UIColor.systemRedColor }]];
+    NSMutableAttributedString *out = [NSMutableAttributedString new];
+    for (NSAttributedString *p in parts) {
+        if (out.length) [out appendAttributedString:[[NSAttributedString alloc] initWithString:@" · " attributes:plain]];
+        [out appendAttributedString:p];
+    }
+    return out;
+}
+
+- (void)downloadsChanged:(NSNotification *)n {
+    if ([n.name isEqualToString:TPDownloadProgressNotification]) {
+        NSString *p = [NSString stringWithFormat:@"%.0f%%", floor([n.userInfo[@"progress"] doubleValue] * 100)];
+        if ([p isEqualToString:_downloadPercent]) return;
+        _downloadPercent = p;
+    } else if (![TPDownloader activeRecordID]) {
+        _downloadPercent = nil;
+    }
+    UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+    UIListContentConfiguration *c = (UIListContentConfiguration *)cell.contentConfiguration;
+    if (![c isKindOfClass:[UIListContentConfiguration class]]) return;
+    c = [c copy];
+    c.secondaryAttributedText = [self downloadStatusText];
+    cell.contentConfiguration = c;
+}
+
+// "New" marks after an update: a pill on a new page, a dot on a page with new options, and a
+// pill after each new option's name, until that page has been opened and left. Only after an
+// update (the What's New check sets the flag): on a new install everything is new.
+static NSDictionary<NSString *, NSArray<NSString *> *> *TPNewInThisRelease(void) {
+    return @{ @"Download Manager": @[],
+              @"Media Download": @[TPKeyThreadDownloadBtn, TPKeyAlbumByAuthor, TPKeyKeepDownloadCopies, TPKeyDownloadHistoryLimit, TPKeyDuplicateWarn, TPKeyNameFromPost, @"nameFormat", TPKeyPostDate],
+              @"Home Feed": @[TPKeyMuteRefreshSound],
+              @"Player": @[TPKeyNoMusicAutoplay],
+              @"Hidden Items": @[TPKeyHideNewAccounts, TPKeyHideIGConnections, @"editKeywords"],
+              @"Backup": @[TPKeyBackupMutedRules, TPKeyBackupAuthors],
+              @"Advanced": @[@"clearCache"] };
+}
+static NSString *const kTPNewSeenKey = @"tp_new_seen_1_32";
+static BOOL TPPageHasNew(NSString *header) {
+    NSUserDefaults *d = [TPPrefs defaults];
+    if (![d boolForKey:@"tp_new_badges_1_32"] || !TPNewInThisRelease()[header]) return NO;
+    return ![[d arrayForKey:kTPNewSeenKey] containsObject:header];
+}
+static BOOL TPRowIsNew(NSString *header, NSDictionary *row) {
+    if (!TPPageHasNew(header)) return NO;
+    NSString *ident = row[@"key"] ?: row[@"action"];
+    return ident && [TPNewInThisRelease()[header] containsObject:ident];
+}
+static void TPMarkPageSeen(NSString *header) {
+    if (!TPPageHasNew(header)) return;
+    NSUserDefaults *d = [TPPrefs defaults];
+    NSMutableArray *seen = [[d arrayForKey:kTPNewSeenKey] mutableCopy] ?: [NSMutableArray array];
+    [seen addObject:header];
+    [d setObject:seen forKey:kTPNewSeenKey];
+}
+
+// A small accent "New" pill, or a dot, then a chevron.
+static UIView *TPNewAccessory(BOOL pill) {
+    UIImageView *arrow = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"
+        withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold]]];
+    arrow.tintColor = UIColor.tertiaryLabelColor;
+    [arrow sizeToFit];
+    UIView *mark;
+    if (pill) {
+        UILabel *l = [UILabel new];
+        l.text = TPL(@"New");
+        l.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+        l.textColor = TPAccent();
+        l.textAlignment = NSTextAlignmentCenter;
+        l.backgroundColor = [TPAccent() colorWithAlphaComponent:0.16];
+        l.layer.cornerRadius = 6;
+        l.layer.masksToBounds = YES;
+        [l sizeToFit];
+        l.frame = CGRectMake(0, 0, l.bounds.size.width + 12, 20);
+        mark = l;
+    } else {
+        mark = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 8, 8)];
+        mark.backgroundColor = TPAccent();
+        mark.layer.cornerRadius = 4;
+    }
+    CGFloat h = MAX(mark.bounds.size.height, arrow.bounds.size.height);
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mark.bounds.size.width + 8 + arrow.bounds.size.width, h)];
+    mark.center = CGPointMake(mark.bounds.size.width / 2, h / 2);
+    arrow.center = CGPointMake(box.bounds.size.width - arrow.bounds.size.width / 2, h / 2);
+    [box addSubview:mark];
+    [box addSubview:arrow];
+    return box;
+}
+
 - (UITableViewCell *)rootCellAt:(NSIndexPath *)ip {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     NSString *h = TPRootGroups()[ip.section][ip.row];
+    if ([h isEqualToString:@"Download Manager"]) {
+        UIListContentConfiguration *c = [UIListContentConfiguration valueCellConfiguration];
+        c.text = TPL(h);
+        c.secondaryAttributedText = [self downloadStatusText];
+        c.image = TPSquareIcon(TPCategoryIcon(h), TPAccent());
+        c.imageToTextPadding = 14;
+        cell.contentConfiguration = c;
+        TPApplyCardBackground(cell);
+        if (TPPageHasNew(h)) cell.accessoryView = TPNewAccessory(YES);
+        else cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return cell;
+    }
+    if ([h isEqualToString:@"Telegram"]) {
+        // Opens outside the settings (the Telegram app when installed), hence the arrow.
+        UIListContentConfiguration *c = [UIListContentConfiguration valueCellConfiguration];
+        c.text = TPL(@"Join the Telegram Group");
+        c.image = TPSquareIcon(@"paperplane", TPAccent());
+        c.imageToTextPadding = 14;
+        cell.contentConfiguration = c;
+        TPApplyCardBackground(cell);
+        UIImageView *ext = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"arrow.up.right"
+            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:12 weight:UIImageSymbolWeightBold]]];
+        ext.tintColor = UIColor.tertiaryLabelColor;
+        cell.accessoryView = ext;
+        return cell;
+    }
     NSDictionary *sec = [self sectionWithHeader:h];
     BOOL donate = [h isEqualToString:@"Donate"];
     NSDictionary *link = donate ? [sec[@"rows"] firstObject] : nil;
@@ -1020,15 +1674,36 @@ static NSArray<NSArray<NSString *> *> *TPAboutRows(void) {
         bg.strokeWidth = 0.5;
         cell.backgroundConfiguration = bg;
     }
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    if (TPPageHasNew(h)) cell.accessoryView = TPNewAccessory(NO);
+    else cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
 }
 
+// Optional grey value, then a chevron, as in iOS Settings.
+static UIView *TPChevronAccessory(NSString *value) {
+    UIImageView *arrow = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"
+        withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold]]];
+    arrow.tintColor = UIColor.tertiaryLabelColor;
+    [arrow sizeToFit];
+    UILabel *l = [UILabel new];
+    l.font = [UIFont systemFontOfSize:15];
+    l.textColor = UIColor.secondaryLabelColor;
+    l.text = value;
+    [l sizeToFit];
+    CGFloat gap = value.length ? 6 : 0;
+    CGFloat h = MAX(l.bounds.size.height, arrow.bounds.size.height);
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, (value.length ? l.bounds.size.width : 0) + gap + arrow.bounds.size.width, h)];
+    if (value.length) { l.frame = CGRectMake(0, (h - l.bounds.size.height) / 2, l.bounds.size.width, l.bounds.size.height); [box addSubview:l]; }
+    arrow.frame = CGRectMake(box.bounds.size.width - arrow.bounds.size.width, (h - arrow.bounds.size.height) / 2, arrow.bounds.size.width, arrow.bounds.size.height);
+    [box addSubview:arrow];
+    return box;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
-    if (self.isRoot) return [self rootCellAt:ip];
+    if (self.isRoot && !self.isSearching) return [self rootCellAt:ip];
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
 
-    if (ip.section >= (NSInteger)_sections.count) {
+    if (!self.isSearching && ip.section >= (NSInteger)_sections.count) {
         UIListContentConfiguration *c = [UIListContentConfiguration cellConfiguration];
         c.text = TPL(@"Reset All Settings");
         c.textProperties.color = UIColor.systemRedColor;
@@ -1075,6 +1750,13 @@ static NSArray<NSArray<NSString *> *> *TPAboutRows(void) {
     UIListContentConfiguration *c = detail.length ? [UIListContentConfiguration subtitleCellConfiguration]
                                                   : [UIListContentConfiguration cellConfiguration];
     c.text = TPL(row[@"title"]);
+    if (!self.isRoot && !self.isSearching && TPRowIsNew(_allSections[_category][@"header"], row)) {
+        NSMutableAttributedString *t = [[NSMutableAttributedString alloc] initWithString:[TPL(row[@"title"]) stringByAppendingString:@"  "]
+            attributes:@{ NSFontAttributeName: c.textProperties.font, NSForegroundColorAttributeName: UIColor.labelColor }];
+        [t appendAttributedString:[[NSAttributedString alloc] initWithString:TPL(@"New") attributes:@{
+            NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold], NSForegroundColorAttributeName: TPAccent() }]];
+        c.attributedText = t;
+    }
     if (detail.length) {
         c.secondaryText = TPL(detail);
         c.secondaryTextProperties.color = UIColor.secondaryLabelColor;
@@ -1083,6 +1765,25 @@ static NSArray<NSArray<NSString *> *> *TPAboutRows(void) {
     }
     TPApplyIcon(c, row[@"icon"], nil);
     TPApplyCardBackground(cell);
+    if ([row[@"action"] isEqualToString:@"clearCache"]) {
+        UILabel *size = [UILabel new];
+        size.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular];
+        size.textColor = UIColor.secondaryLabelColor;
+        size.text = sTPCacheSize ?: @"…";
+        [size sizeToFit];
+        cell.accessoryView = size;
+    }
+    // Rows that open a page of their own get a chevron (and the muted rules their count), so
+    // they read as something to tap into rather than plain text.
+    NSString *act = row[@"action"];
+    if ([act isEqualToString:@"editKeywords"] || [act isEqualToString:@"authorStats"] || [act isEqualToString:@"nameFormat"]) {
+        NSString *value = nil;
+        if ([act isEqualToString:@"editKeywords"]) {
+            NSUInteger n = [TPPrefs mutedRules].count;
+            value = n ? [NSString stringWithFormat:TPL(@"%lu rules"), (unsigned long)n] : TPL(@"None");
+        }
+        cell.accessoryView = TPChevronAccessory(value);
+    }
 
     if ([type isEqualToString:@"switch"]) {
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -1113,6 +1814,7 @@ static NSArray<NSArray<NSString *> *> *TPAboutRows(void) {
 
 static const void *kTPSwitchKey = &kTPSwitchKey;
 
+
 - (void)switchChanged:(UISwitch *)sw {
     NSString *key = objc_getAssociatedObject(sw, kTPSwitchKey);
     if (!key) return;
@@ -1124,8 +1826,17 @@ static const void *kTPSwitchKey = &kTPSwitchKey;
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
-    if (self.isRoot) {
+    if (self.isRoot && !self.isSearching) {
         NSString *h = TPRootGroups()[ip.section][ip.row];
+        if ([h isEqualToString:@"Download Manager"]) {
+            TPMarkPageSeen(h);
+            [self.navigationController pushViewController:[TPDownloadManagerViewController new] animated:YES];
+            return;
+        }
+        if ([h isEqualToString:@"Telegram"]) {
+            [UIApplication.sharedApplication openURL:[NSURL URLWithString:kTPTelegramURL] options:@{} completionHandler:nil];
+            return;
+        }
         if ([h isEqualToString:@"Donate"]) { [self openLink:[[self sectionWithHeader:h][@"rows"] firstObject][@"url"]]; return; }
         NSUInteger idx = [_allSections indexOfObject:[self sectionWithHeader:h]];
         if (idx == NSNotFound) return;
@@ -1135,7 +1846,7 @@ static const void *kTPSwitchKey = &kTPSwitchKey;
     }
     UITableViewCell *cell = [tv cellForRowAtIndexPath:ip];
 
-    if (ip.section >= (NSInteger)_sections.count) {
+    if (!self.isSearching && ip.section >= (NSInteger)_sections.count) {
         [self confirmReset];
         return;
     }
@@ -1145,12 +1856,15 @@ static const void *kTPSwitchKey = &kTPSwitchKey;
         if ([row[@"action"] isEqualToString:@"export"]) [self exportSettingsFrom:cell];
         else if ([row[@"action"] isEqualToString:@"resetSeenChats"]) [self confirmResetSeenChats];
         else if ([row[@"action"] isEqualToString:@"analyticsLog"]) [self showAnalyticsLog];
+        else if ([row[@"action"] isEqualToString:@"clearCache"]) [self confirmClearCache];
         else if ([row[@"action"] isEqualToString:@"welcome"]) [TPWelcomeViewController present];
         else if ([row[@"action"] isEqualToString:@"whatsNew"]) [TPWelcomeViewController presentWhatsNew];
         else if ([row[@"action"] isEqualToString:@"authorStatus"]) [self showAuthorStatus];
         else if ([row[@"action"] isEqualToString:@"authorStats"]) [self.navigationController pushViewController:[TPAuthorStatsViewController new] animated:YES];
         else if ([row[@"action"] isEqualToString:@"copyAbout"]) [self copyAbout:nil];
         else if ([row[@"action"] isEqualToString:@"checkUpdate"]) [TPUpdateChecker checkNow];
+        else if ([row[@"action"] isEqualToString:@"editKeywords"]) [self editMutedKeywords];
+        else if ([row[@"action"] isEqualToString:@"nameFormat"]) [self.navigationController pushViewController:[TPFileNameFormatViewController new] animated:YES];
         else [self importSettings];
     } else if ([type isEqualToString:@"link"]) {
         [self openLink:row[@"url"]];
@@ -1259,10 +1973,108 @@ static const void *kTPSwitchKey = &kTPSwitchKey;
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSData *data = urls.firstObject ? [NSData dataWithContentsOfURL:urls.firstObject] : nil;
-    NSInteger n = [TPPrefs importJSONData:data];
+    NSInteger rules = 0, authors = 0;
+    NSInteger n = [TPPrefs importJSONData:data mutedRules:&rules authors:&authors];
     [[NSNotificationCenter defaultCenter] postNotificationName:TPThemeDidChangeNotification object:nil];
     [self applyTheme];
     if (n < 0) { [TPUI hapticError];   [TPHUD toast:TPL(@"Invalid settings file")]; }
-    else       { [TPUI hapticSuccess]; [TPHUD toast:[NSString stringWithFormat:TPL(@"Imported %ld settings"), (long)n]]; }
+    else {
+        [TPUI hapticSuccess];
+        NSMutableString *msg = [NSMutableString stringWithFormat:TPL(@"Imported %ld settings"), (long)n];
+        if (rules) [msg appendFormat:@" · %@", [NSString stringWithFormat:TPL(@"%ld muted rules"), (long)rules]];
+        if (authors) [msg appendFormat:@" · %@", [NSString stringWithFormat:TPL(@"%ld authors"), (long)authors]];
+        [TPHUD toast:msg];
+    }
 }
+#pragma mark - Clear cache
+
+// Threads' caches (Library/Caches and tmp: images, videos, feed data) are removed at the next
+// launch, before Threads opens any of them; deleting them while it runs could break files it has
+// open. Login, settings and the download history live elsewhere and are kept.
+static NSString *const kTPClearCachePending = @"tp_clear_cache_pending";
+
+static NSArray<NSString *> *TPCacheDirs(void) {
+    NSString *caches = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    return caches ? @[caches, NSTemporaryDirectory()] : @[NSTemporaryDirectory()];
+}
+
+static unsigned long long TPDirSize(NSString *dir) {
+    unsigned long long total = 0;
+    NSDirectoryEnumerator *e = [NSFileManager.defaultManager enumeratorAtURL:[NSURL fileURLWithPath:dir]
+        includingPropertiesForKeys:@[NSURLTotalFileAllocatedSizeKey] options:0 errorHandler:nil];
+    for (NSURL *u in e) {
+        NSNumber *n = nil;
+        [u getResourceValue:&n forKey:NSURLTotalFileAllocatedSizeKey error:nil];
+        total += n.unsignedLongLongValue;
+    }
+    return total;
+}
+
++ (void)runPendingCacheClear {
+    NSUserDefaults *d = [TPPrefs defaults];
+    if (![d boolForKey:kTPClearCachePending]) return;
+    [d removeObjectForKey:kTPClearCachePending];
+    unsigned long long freed = 0;
+    NSFileManager *fm = NSFileManager.defaultManager;
+    for (NSString *dir in TPCacheDirs()) {
+        for (NSString *name in [fm contentsOfDirectoryAtPath:dir error:nil]) {
+            NSString *p = [dir stringByAppendingPathComponent:name];
+            unsigned long long sz = TPDirSize(p);
+            BOOL isDir = NO;
+            [fm fileExistsAtPath:p isDirectory:&isDir];
+            if (!isDir) sz = [[fm attributesOfItemAtPath:p error:nil] fileSize];
+            if ([fm removeItemAtPath:p error:nil]) freed += sz;
+        }
+    }
+    NSString *size = [NSByteCountFormatter stringFromByteCount:(long long)freed countStyle:NSByteCountFormatterCountStyleFile];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [TPHUD toast:[NSString stringWithFormat:TPL(@"Cleared %@ of cache"), size]];
+    });
+}
+
+// Measured when a page with the Clear Cache row opens, so the row shows the size before it's tapped.
+- (void)refreshCacheSize {
+    BOOL hasRow = NO;
+    for (NSDictionary *sec in _sections) for (NSDictionary *r in sec[@"rows"]) if ([r[@"action"] isEqualToString:@"clearCache"]) hasRow = YES;
+    if (!hasRow) return;
+    __weak typeof(self) weak = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        unsigned long long total = 0;
+        for (NSString *dir in TPCacheDirs()) total += TPDirSize(dir);
+        NSString *size = [NSByteCountFormatter stringFromByteCount:(long long)total countStyle:NSByteCountFormatterCountStyleFile];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sTPCacheSize = size;
+            [weak.tableView reloadData];
+        });
+    });
+}
+
+- (void)confirmClearCache {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        unsigned long long total = 0;
+        for (NSString *dir in TPCacheDirs()) total += TPDirSize(dir);
+        NSString *size = [NSByteCountFormatter stringFromByteCount:(long long)total countStyle:NSByteCountFormatterCountStyleFile];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sTPCacheSize = size;
+            UIAlertController *a = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:TPL(@"Clear %@ of Cache?"), size]
+                message:TPL(@"Threads closes, and the cache is cleared when you open it again.")
+                preferredStyle:UIAlertControllerStyleAlert];
+            [a addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+            [a addAction:[UIAlertAction actionWithTitle:TPL(@"Clear and Close") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *x) {
+                [[TPPrefs defaults] setBool:YES forKey:kTPClearCachePending];
+                [[TPPrefs defaults] synchronize];
+                // Back to the Home Screen first so it doesn't look like a crash, then quit.
+                UIApplication *app = UIApplication.sharedApplication;
+                if ([app respondsToSelector:@selector(suspend)]) [app performSelector:@selector(suspend)];
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ exit(0); });
+            }]];
+            [self presentViewController:a animated:YES completion:nil];
+        });
+    });
+}
+
+- (void)editMutedKeywords {
+    [self.navigationController pushViewController:[TPMutedKeywordsViewController new] animated:YES];
+}
+
 @end

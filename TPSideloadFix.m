@@ -153,7 +153,8 @@ static NSString *TPResolveAccessGroup(void) {
 }
 
 typedef struct { const char *name; void *replacement; } TPRebinding;
-static TPRebinding gTPRebindings[4];
+static TPRebinding gTPRebindings[8];
+static size_t gTPRebindingCount;
 static char *gTPAppPath;
 
 // Symbol pointers in __DATA_CONST / __AUTH_CONST are read-only and are made writable only for
@@ -168,8 +169,8 @@ static void TPRebindSection(const struct section_64 *sect, intptr_t slide, BOOL 
         if (idx == INDIRECT_SYMBOL_ABS || idx == INDIRECT_SYMBOL_LOCAL ||
             idx == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) continue;
         const char *name = strtab + symtab[idx].n_un.n_strx;
-        if (name[0] != '_' || strncmp(name, "_SecItem", 8) != 0) continue;
-        for (size_t r = 0; r < sizeof(gTPRebindings) / sizeof(gTPRebindings[0]); r++) {
+        if (name[0] != '_') continue;
+        for (size_t r = 0; r < gTPRebindingCount; r++) {
             if (strcmp(name + 1, gTPRebindings[r].name) != 0) continue;
             if (slots[i] == gTPRebindings[r].replacement) break;
             if (!readOnly) { slots[i] = gTPRebindings[r].replacement; break; }
@@ -226,6 +227,19 @@ static void TPRebindImage(const struct mach_header *header, intptr_t slide) {
     }
 }
 
+// Points calls to C functions from the app's own images (main executable and Frameworks) at
+// replacements. Can be called more than once; each call rebinds the images already loaded and
+// those loaded later.
+void TPRebindSymbols(const char **names, void **replacements, size_t count) {
+    if (!gTPAppPath)
+        gTPAppPath = strdup([NSString stringWithFormat:@"/%@/", NSBundle.mainBundle.bundlePath.lastPathComponent].fileSystemRepresentation);
+    for (size_t i = 0; i < count && gTPRebindingCount < sizeof(gTPRebindings) / sizeof(gTPRebindings[0]); i++)
+        gTPRebindings[gTPRebindingCount++] = (TPRebinding){ names[i], replacements[i] };
+    static BOOL registered;
+    if (!registered) { registered = YES; _dyld_register_func_for_add_image(TPRebindImage); return; }
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) TPRebindImage(_dyld_get_image_header(i), _dyld_get_image_vmaddr_slide(i));
+}
+
 static IMP orig_containerURL;
 
 static NSURL *tp_containerURL(id self, SEL _cmd, NSString *group) {
@@ -273,12 +287,8 @@ void TPSideloadFixInstall(void) {
     TPResolveAccessGroup();
     if (gTPNativeSignature) return;
 
-    gTPAppPath = strdup([NSString stringWithFormat:@"/%@/", NSBundle.mainBundle.bundlePath.lastPathComponent].fileSystemRepresentation);
-    gTPRebindings[0] = (TPRebinding){ "SecItemAdd",          (void *)tp_SecItemAdd };
-    gTPRebindings[1] = (TPRebinding){ "SecItemCopyMatching", (void *)tp_SecItemCopyMatching };
-    gTPRebindings[2] = (TPRebinding){ "SecItemUpdate",       (void *)tp_SecItemUpdate };
-    gTPRebindings[3] = (TPRebinding){ "SecItemDelete",       (void *)tp_SecItemDelete };
-    _dyld_register_func_for_add_image(TPRebindImage);
+    TPRebindSymbols((const char *[]){ "SecItemAdd", "SecItemCopyMatching", "SecItemUpdate", "SecItemDelete" },
+                    (void *[]){ (void *)tp_SecItemAdd, (void *)tp_SecItemCopyMatching, (void *)tp_SecItemUpdate, (void *)tp_SecItemDelete }, 4);
 
     Method m = class_getInstanceMethod([NSFileManager class], @selector(containerURLForSecurityApplicationGroupIdentifier:));
     if (m) orig_containerURL = method_setImplementation(m, (IMP)tp_containerURL);

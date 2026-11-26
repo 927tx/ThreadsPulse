@@ -18,4 +18,8 @@
 // Optional: number of posts queued after this one ("Cancel All" appears when > 0).
 @property (nonatomic, copy) NSInteger (^queueCount)(void);
 @property (nonatomic, copy) void (^cancelAll)(void);
+// A capsule whose tag is "hosted" stays hidden: another view shows its progress instead (the
+// thread page's download button). It reappears as soon as that view goes away.
+@property (nonatomic, copy) NSString *tag;
++ (void)setHostedTag:(NSString *)tag hosted:(BOOL)hosted;
 @end

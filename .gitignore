@@ -7,3 +7,5 @@ dist/
 *.dylib
 *.ipa
 __pycache__/
+**/.theos/
+OpenThreadsSafariExtension/.theos/

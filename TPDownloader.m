@@ -1,8 +1,10 @@
 #import "TPDownloader.h"
+#import <malloc/malloc.h>
 #import "TPVersion.h"
 #import "TPPrefs.h"
 #import "TPLocalization.h"
 #import <Photos/Photos.h>
+#import <UserNotifications/UserNotifications.h>
 #import <AVFoundation/AVFoundation.h>
 #import <VideoToolbox/VideoToolbox.h>
 #import "vpx/vpx_decoder.h"
@@ -13,11 +15,17 @@
 #import "TPHUD.h"
 #import "TPCapsule.h"
 
+#import "TPDownloadManager.h"
+#import "TPAuthorInfo.h"
+
 @interface TPDownloadJob : NSObject <NSURLSessionDownloadDelegate>
 - (instancetype)initWithItems:(NSArray<NSDictionary *> *)items;
 - (void)start;
 - (void)dashFailed:(NSString *)why;
 - (void)dashMerged:(NSURL *)file;
+- (NSString *)recordID;
+- (void)cancelFromManager;
+- (BOOL)isDownloading;
 @end
 
 @interface TPDownloadJob (Transcode)
@@ -29,6 +37,10 @@ static NSMutableSet *sJobs;
 // Downloads run one job at a time; jobs started meanwhile wait here (the progress capsule
 // doesn't block the app, so several posts can be queued).
 static NSMutableArray<NSArray<NSDictionary *> *> *sQueue;
+static BOOL sQueuePaused;
+// One video converts at a time; while it does, the next queued post may already download.
+static __weak id sConvertingJob;
+static NSMutableArray<void (^)(void)> *sConvertWaiters;
 static void TPStartNextJob(void);
 
 // Collects every <Representation> in an MPD with the attributes it inherits from its
@@ -194,10 +206,31 @@ static NSInteger TPScoreURL(NSURL *u) {
     return best;
 }
 
+// An ivar read as an object only when it really holds one. Swift ivars of struct, enum or
+// optional type have no ObjC type encoding, and object_getIvar then returns their raw bits:
+// messaging those crashes (seen with the share sheet's cells). So: object ivars ("@") as is;
+// untyped ones only if the bits are a heap object or a tagged pointer of a known class.
+static id TPCheckedObject(void *p) {
+    uintptr_t v = (uintptr_t)p;
+    if (!v) return nil;
+    if ((intptr_t)v < 0) return object_getClass((__bridge id)p) ? (__bridge id)p : nil;   // tagged pointer
+    if (v < 0x100000000ULL || (v & 7)) return nil;
+    if (malloc_size(p) < 16) return nil;
+    return (__bridge id)p;
+}
+
+static id TPCheckedIvar(id obj, Ivar iv) {
+    if (!obj || !iv) return nil;
+    const char *enc = ivar_getTypeEncoding(iv);
+    if (enc && enc[0] == '@') return object_getIvar(obj, iv);
+    if (enc && enc[0]) return nil;   // a C type: not an object
+    return TPCheckedObject(*(void **)((uint8_t *)(__bridge void *)obj + ivar_getOffset(iv)));
+}
+
 static id TPIvarObject(id obj, const char *name) {
     for (Class c = [obj class]; c; c = class_getSuperclass(c)) {
         Ivar iv = class_getInstanceVariable(c, name);
-        if (iv) return object_getIvar(obj, iv);
+        if (iv) return TPCheckedIvar(obj, iv);
     }
     return nil;
 }
@@ -604,7 +637,7 @@ static NSString *TPDashDiag(NSString *label, NSArray *objs, NSInteger prog) {
     if (!obj || !name.length) return nil;
     for (Class c = [obj class]; c; c = class_getSuperclass(c)) {
         Ivar iv = class_getInstanceVariable(c, name.UTF8String);
-        if (iv) return object_getIvar(obj, iv);
+        if (iv) return TPCheckedIvar(obj, iv);
     }
     return nil;
 }
@@ -620,24 +653,32 @@ static NSArray<NSDictionary *> *TPStripDash(NSArray<NSDictionary *> *items) {
     return out;
 }
 
-+ (void)downloadItems:(NSArray<NSDictionary *> *)items {
++ (void)downloadItems:(NSArray<NSDictionary *> *)items { [self downloadItems:items context:nil]; }
+
++ (void)downloadItems:(NSArray<NSDictionary *> *)items context:(NSDictionary *)context {
     if (!items.count) return;
+    BOOL retry = [context[@"retry"] boolValue];
     dispatch_async(dispatch_get_main_queue(), ^{
         void (^run)(NSArray *) = ^(NSArray *list) {
+            // Retries already carry their record; new downloads get one here.
+            if (!retry) list = [TPDownloadStore addRecordForItems:list context:context];
             if (!sQueue) sQueue = [NSMutableArray array];
             [sQueue addObject:list];
-            if (sJobs.count) {
-                [TPHUD toast:TPL(@"Added to download queue")];
+            if (sJobs.count || sQueuePaused) {
+                if (![context[@"quiet"] boolValue])
+                    [TPHUD toast:sQueuePaused ? TPL(@"Added to queue (paused)") : TPL(@"Added to download queue")];
                 [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
                 return;
             }
             TPStartNextJob();
         };
+        void (^proceed)(void) = ^{
         NSDictionary *dashItem = nil;
         for (NSDictionary *d in items) if (d[@"dashVideo"]) { dashItem = d; break; }
-        if (!dashItem || [TPPrefs integerForKey:TPKeyVideoQuality] != 2) { run(items); return; }
+        if (!dashItem || retry || [TPPrefs integerForKey:TPKeyVideoQuality] != 2) { run(items); return; }
 
         UIViewController *top = [self topViewController];
+        if (!top) { run(items); return; }
         UIAlertController *a = [UIAlertController alertControllerWithTitle:TPL(@"Choose video quality") message:nil
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
         NSString *label = dashItem[@"dashLabel"] ?: @"1080p";
@@ -656,52 +697,188 @@ static NSArray<NSDictionary *> *TPStripDash(NSArray<NSDictionary *> *items) {
             a.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(top.view.bounds), CGRectGetMaxY(top.view.bounds) - 40, 1, 1);
         }
         [top presentViewController:a animated:YES completion:nil];
+        };
+
+        // Duplicate check: a post already in the download history (queued, running or saved).
+        NSString *code = [context[@"code"] isKindOfClass:[NSString class]] ? context[@"code"] : nil;
+        NSDictionary *dup = (!retry && ![context[@"quiet"] boolValue] && ![context[@"kind"] isEqualToString:@"avatar"] && ![context[@"kind"] isEqualToString:@"cover"]
+                             && [TPPrefs boolForKey:TPKeyDuplicateWarn]) ? [TPDownloadStore existingRecordForCode:code] : nil;
+        if (!dup) { proceed(); return; }
+        NSInteger st = [dup[@"status"] integerValue];
+        NSString *msg;
+        if (st == 0 || st == 1) {
+            msg = TPL(@"This post is already in the download queue.");
+        } else {
+            NSDate *when = [dup[@"date"] isKindOfClass:[NSDate class]] ? dup[@"date"] : nil;
+            NSString *ds = when ? [NSDateFormatter localizedStringFromDate:when dateStyle:NSDateFormatterMediumStyle timeStyle:NSDateFormatterShortStyle] : @"";
+            msg = [NSString stringWithFormat:TPL(@"You downloaded this post on %@."), ds];
+        }
+        UIViewController *top = [self topViewController];
+        if (!top) { proceed(); return; }
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:TPL(@"Already Downloaded") message:msg
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Download Again") style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *x) { proceed(); }]];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Open Download Manager") style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *x) { [TPDownloadManagerViewController present]; }]];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+        [top presentViewController:a animated:YES completion:nil];
     });
+}
+
+static NSString *TPFileSafe(NSString *s);
+
+static NSArray<NSString *> *TPNamePartIDs(void) { return @[@"author", @"date", @"time", @"code", @"index", @"country", @"threads"]; }
+
++ (NSArray<NSDictionary *> *)fileNameParts {
+    NSString *raw = [TPPrefs stringForKey:TPKeyNameParts];
+    if (!raw.length) raw = @"author,date,time,code,index,!country,!threads";
+    NSMutableArray *out = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (NSString *t in [raw componentsSeparatedByString:@","]) {
+        BOOL off = [t hasPrefix:@"!"];
+        NSString *ident = off ? [t substringFromIndex:1] : t;
+        if (![TPNamePartIDs() containsObject:ident] || [seen containsObject:ident]) continue;
+        [seen addObject:ident];
+        [out addObject:@{ @"id": ident, @"on": @(!off) }];
+    }
+    for (NSString *ident in TPNamePartIDs()) if (![seen containsObject:ident]) [out addObject:@{ @"id": ident, @"on": @NO }];
+    return out;
+}
+
++ (void)setFileNameParts:(NSArray<NSDictionary *> *)parts {
+    NSMutableArray *tokens = [NSMutableArray array];
+    for (NSDictionary *p in parts) [tokens addObject:[p[@"on"] boolValue] ? p[@"id"] : [@"!" stringByAppendingString:p[@"id"]]];
+    [TPPrefs setString:parts ? [tokens componentsJoinedByString:@","] : @"" forKey:TPKeyNameParts];
+}
+
++ (NSString *)fileNameWithAuthor:(NSString *)author country:(NSString *)country date:(NSDate *)date
+                            code:(NSString *)code index:(NSInteger)index count:(NSInteger)count
+                           label:(NSString *)label extension:(NSString *)ext {
+    NSInteger sepIdx = [TPPrefs integerForKey:TPKeyNameSeparator];
+    NSString *sep = sepIdx == 1 ? @"-" : (sepIdx == 2 ? @" " : @"_");
+    BOOL dashed = [TPPrefs integerForKey:TPKeyNameDateStyle] == 1;
+    NSDateFormatter *f = [NSDateFormatter new];
+    f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    NSMutableArray *parts = [NSMutableArray array];
+    BOOL labelAdded = NO;
+    for (NSDictionary *p in [self fileNameParts]) {
+        if (![p[@"on"] boolValue]) continue;
+        NSString *ident = p[@"id"], *v = nil;
+        if ([ident isEqualToString:@"author"]) {
+            NSString *a = TPFileSafe(author);
+            v = a.length ? [@"@" stringByAppendingString:a] : nil;
+        } else if ([ident isEqualToString:@"country"]) v = TPFileSafe(country);
+        else if ([ident isEqualToString:@"date"]) { f.dateFormat = dashed ? @"yyyy-MM-dd" : @"yyyyMMdd"; v = [f stringFromDate:date ?: NSDate.date]; }
+        else if ([ident isEqualToString:@"time"]) { f.dateFormat = dashed ? @"HH-mm-ss" : @"HHmmss"; v = [f stringFromDate:date ?: NSDate.date]; }
+        else if ([ident isEqualToString:@"code"]) v = TPFileSafe(code);
+        else if ([ident isEqualToString:@"index"]) v = count > 1 ? [NSString stringWithFormat:@"%ld", (long)index + 1] : nil;
+        else if ([ident isEqualToString:@"threads"]) v = @"Threads";
+        if (v.length) [parts addObject:v];
+        if (label.length && !labelAdded && [ident isEqualToString:@"author"]) { [parts addObject:label]; labelAdded = YES; }
+    }
+    if (label.length && !labelAdded) [parts insertObject:label atIndex:0];
+    if (!parts.count) {
+        f.dateFormat = @"yyyyMMdd_HHmmss";
+        [parts addObjectsFromArray:@[@"Threads", [f stringFromDate:date ?: NSDate.date]]];
+    }
+    return [[parts componentsJoinedByString:sep] stringByAppendingPathExtension:ext.length ? ext : @"jpg"];
+}
+
++ (BOOL)queuePaused { return sQueuePaused; }
+
++ (void)setQueuePaused:(BOOL)paused {
+    sQueuePaused = paused;
+    [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
+    if (!paused) TPStartNextJob();
+}
+
++ (NSString *)activeRecordID { return [self activeRecordIDs].firstObject; }
+
++ (NSArray<NSString *> *)activeRecordIDs {
+    NSMutableArray *ids = [NSMutableArray array];
+    for (TPDownloadJob *j in sJobs) { NSString *r = [j recordID]; if (r) [ids addObject:r]; }
+    return ids;
+}
+
++ (NSArray<NSString *> *)queuedRecordIDs {
+    NSMutableArray *ids = [NSMutableArray array];
+    for (NSArray *list in sQueue) { NSString *r = list.firstObject[@"tp_record"]; if (r) [ids addObject:r]; }
+    return ids;
+}
+
++ (void)removeQueuedRecord:(NSString *)rid {
+    for (NSArray *list in [sQueue copy]) {
+        if (![list.firstObject[@"tp_record"] isEqualToString:rid]) continue;
+        [sQueue removeObject:list];
+        [TPDownloadStore setRecord:rid status:4];
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
+}
+
++ (void)moveQueuedRecordFrom:(NSInteger)from to:(NSInteger)to {
+    if (from < 0 || to < 0 || from >= (NSInteger)sQueue.count || to >= (NSInteger)sQueue.count) return;
+    NSArray *x = sQueue[from];
+    [sQueue removeObjectAtIndex:from];
+    [sQueue insertObject:x atIndex:to];
+    [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
+}
+
++ (void)cancelRecord:(NSString *)recordID {
+    for (TPDownloadJob *j in [sJobs copy]) if ([[j recordID] isEqualToString:recordID]) [j cancelFromManager];
 }
 
 + (void)downloadVideoURL:(NSURL *)url { [self downloadVideoURL:url dash:nil]; }
 
-+ (void)downloadVideoURL:(NSURL *)url dash:(NSDictionary *)dash {
++ (void)downloadVideoURL:(NSURL *)url dash:(NSDictionary *)dash { [self downloadVideoURL:url dash:dash context:nil]; }
+
++ (void)downloadVideoURL:(NSURL *)url dash:(NSDictionary *)dash context:(NSDictionary *)context {
     if (!url && !dash[@"dashVideo"]) return;
     NSMutableDictionary *item = [NSMutableDictionary dictionaryWithDictionary:dash ?: @{}];
     item[@"urls"] = url ? @[url] : @[];
     item[@"video"] = @YES;
-    [self downloadItems:@[item]];
+    [self downloadItems:@[item] context:context];
 }
 
 @end
 
 
 
-// Adds saved assets to a "Threads" album, creating it once. Needs read/write Photos access;
-// failures are ignored because the files are already in the library.
-static void TPAddToThreadsAlbum(NSArray<NSString *> *assetIDs) {
+// Adds saved assets to a named album (e.g. "Threads" or "@author"), creating it once.
+// Needs read/write Photos access; failures are ignored because the files are already in the library.
+static void TPAddToAlbumNamed(NSString *albumTitle, NSArray<NSString *> *assetIDs) {
     if (!assetIDs.count) return;
+    NSString *title = albumTitle.length ? albumTitle : @"Threads";
     static dispatch_queue_t q;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ q = dispatch_queue_create("tp.album", DISPATCH_QUEUE_SERIAL); });
     dispatch_async(q, ^{
         NSUserDefaults *ud = [TPPrefs defaults];
+        NSMutableDictionary *idMap = [[ud dictionaryForKey:@"tp_album_ids_by_name"] mutableCopy] ?: [NSMutableDictionary dictionary];
+        NSString *savedID = idMap[title] ?: ([title isEqualToString:@"Threads"] ? [ud stringForKey:@"tp_album_id"] : nil);
         PHAssetCollection *album = nil;
-        NSString *savedID = [ud stringForKey:@"tp_album_id"];
         if (savedID.length)
             album = [PHAssetCollection fetchAssetCollectionsWithLocalIdentifiers:@[savedID] options:nil].firstObject;
         if (!album) {
             PHFetchOptions *o = [PHFetchOptions new];
-            o.predicate = [NSPredicate predicateWithFormat:@"title == %@", @"Threads"];
+            o.predicate = [NSPredicate predicateWithFormat:@"title == %@", title];
             album = [PHAssetCollection fetchAssetCollectionsWithType:PHAssetCollectionTypeAlbum
                                                              subtype:PHAssetCollectionSubtypeAlbumRegular options:o].firstObject;
         }
         if (!album) {
             __block NSString *newID = nil;
             [[PHPhotoLibrary sharedPhotoLibrary] performChangesAndWait:^{
-                newID = [PHAssetCollectionChangeRequest creationRequestForAssetCollectionWithTitle:@"Threads"]
+                newID = [PHAssetCollectionChangeRequest creationRequestForAssetCollectionWithTitle:title]
                             .placeholderForCreatedAssetCollection.localIdentifier;
             } error:nil];
             if (newID) album = [PHAssetCollection fetchAssetCollectionsWithLocalIdentifiers:@[newID] options:nil].firstObject;
         }
         if (!album) return;
-        if (![album.localIdentifier isEqualToString:savedID]) [ud setObject:album.localIdentifier forKey:@"tp_album_id"];
+        if (![album.localIdentifier isEqualToString:savedID]) {
+            idMap[title] = album.localIdentifier;
+            [ud setObject:idMap forKey:@"tp_album_ids_by_name"];
+            if ([title isEqualToString:@"Threads"]) [ud setObject:album.localIdentifier forKey:@"tp_album_id"];
+        }
         PHFetchResult<PHAsset *> *assets = [PHAsset fetchAssetsWithLocalIdentifiers:assetIDs options:nil];
         if (!assets.count) return;
         [[PHPhotoLibrary sharedPhotoLibrary] performChangesAndWait:^{
@@ -760,8 +937,36 @@ static NSData *TPJPEGData(UIImage *img) {
     return UIImageJPEGRepresentation(flat, 0.95);
 }
 
+// Threads post IDs carry their creation time: (milliseconds since 2011-08-24 21:07:01.721 UTC) << 23.
+// The shortcode is the ID in base 64 (A–Z a–z 0–9 - _).
+static NSDate *TPDateFromShortcode(NSString *code) {
+    if (code.length < 6 || code.length > 11) return nil;
+    static NSString *const alphabet = @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    unsigned long long pk = 0;
+    for (NSUInteger i = 0; i < code.length; i++) {
+        NSRange r = [alphabet rangeOfString:[code substringWithRange:NSMakeRange(i, 1)]];
+        if (r.location == NSNotFound) return nil;
+        if (pk > (ULLONG_MAX >> 6)) return nil;
+        pk = (pk << 6) | r.location;
+    }
+    double ms = (double)(pk >> 23) + 1314220021721.0;
+    NSDate *d = [NSDate dateWithTimeIntervalSince1970:ms / 1000.0];
+    // Only trust a date between Threads' launch and a day from now.
+    if (d.timeIntervalSince1970 < 1688083200 || d.timeIntervalSinceNow > 86400) return nil;
+    return d;
+}
+
+static NSString *TPFileSafe(NSString *s) {
+    if (!s.length) return nil;
+    NSCharacterSet *bad = [NSCharacterSet characterSetWithCharactersInString:@"/\\:*?\"<>|\n\r\t"];
+    NSString *out = [[s componentsSeparatedByCharactersInSet:bad] componentsJoinedByString:@"-"];
+    out = [out stringByReplacingOccurrencesOfString:@" " withString:@"-"];
+    return out.length > 40 ? [out substringToIndex:40] : out;
+}
+
 static void TPStartNextJob(void) {
-    if (sJobs.count || !sQueue.count) return;
+    if (!sQueue.count || sQueuePaused) return;
+    for (TPDownloadJob *j in sJobs) if ([j isDownloading]) return;
     NSArray *list = sQueue.firstObject;
     [sQueue removeObjectAtIndex:0];
     TPDownloadJob *job = [[TPDownloadJob alloc] initWithItems:list];
@@ -807,6 +1012,9 @@ static void TPStartNextJob(void) {
     NSInteger _savedAtItemStart, _failedAtItemStart;
     CGFloat _itemFrac;
     NSMutableArray<NSString *> *_savedIDs;
+    NSString *_recordID;
+    NSString *_stageDetail;
+    BOOL _didTranscode;
 }
 
 - (instancetype)initWithItems:(NSArray<NSDictionary *> *)items {
@@ -819,9 +1027,10 @@ static void TPStartNextJob(void) {
         _states = [NSMutableDictionary dictionary];
         _allTasks = [NSMutableArray array];
         _savedIDs = [NSMutableArray array];
-        _useAlbum = [TPPrefs boolForKey:TPKeySaveToAlbum];
+        _useAlbum = [TPPrefs boolForKey:TPKeySaveToAlbum] || [TPPrefs boolForKey:TPKeyAlbumByAuthor];
         _extraReport = sPendingReport;
         sPendingReport = nil;
+        _recordID = items.firstObject[@"tp_record"];
     }
     return self;
 }
@@ -829,6 +1038,8 @@ static void TPStartNextJob(void) {
 - (void)start {
     if (!sJobs) sJobs = [NSMutableSet set];
     [sJobs addObject:self];
+    [TPDownloadStore setRecord:_recordID status:1];
+    [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
 
     // Requesting read/write access without NSPhotoLibraryUsageDescription in Info.plist kills the app.
     if (_useAlbum && ![NSBundle.mainBundle objectForInfoDictionaryKey:@"NSPhotoLibraryUsageDescription"]) {
@@ -890,8 +1101,13 @@ static void TPStartNextJob(void) {
         if (s) s->_wentBackground = YES;
     }];
     _hud = [TPCapsule showWithTitle:[self titleForCurrent] cancel:^{ [weak cancel]; }];
+    _hud.tag = [TPDownloadStore recordWithID:_recordID][@"tag"];
     _hud.queueCount = ^NSInteger { return (NSInteger)sQueue.count; };
-    _hud.cancelAll = ^{ [sQueue removeAllObjects]; [weak cancel]; };
+    _hud.cancelAll = ^{
+        for (NSArray *list in sQueue) [TPDownloadStore setRecord:list.firstObject[@"tp_record"] status:4];
+        [sQueue removeAllObjects];
+        [weak cancel];
+    };
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(queueChanged) name:@"TPQueueChanged" object:nil];
     NSURLSessionConfiguration *cfg = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     _session = [NSURLSession sessionWithConfiguration:cfg delegate:self delegateQueue:NSOperationQueue.mainQueue];
@@ -903,7 +1119,7 @@ static void TPStartNextJob(void) {
 }
 
 - (void)startPrefetch {
-    if (_items.count < 2 || ![TPPrefs boolForKey:TPKeyParallelDownload]) return;
+    if (_items.count < 2) return;
     NSURLSessionConfiguration *cfg = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     cfg.HTTPMaximumConnectionsPerHost = 3;  // + the main session's one = up to 4 at once
     _prefetchSession = [NSURLSession sessionWithConfiguration:cfg];
@@ -939,6 +1155,16 @@ static void TPStartNextJob(void) {
     }
 }
 
+- (void)notifyManagerProgress:(NSString *)detail {
+    if (!_recordID) return;
+    CGFloat overall = ((CGFloat)_index + MAX(0, MIN(1, _itemFrac))) / (CGFloat)MAX((NSInteger)1, (NSInteger)_items.count);
+    NSString *text = detail.length ? detail : (_stageDetail.length ? _stageDetail : (_dashStage == 3
+        ? TPL([_items[_index][@"dashTranscode"] boolValue] ? @"Converting video…" : @"Merging video and audio…")
+        : _speedText));
+    [NSNotificationCenter.defaultCenter postNotificationName:TPDownloadProgressNotification object:nil
+        userInfo:@{ @"record": _recordID, @"progress": @(MIN(1, overall)), @"speed": text ?: @"" }];
+}
+
 - (void)tick {
     int64_t total = 0;
     for (NSURLSessionTask *t in _allTasks) total += t.countOfBytesReceived;
@@ -952,6 +1178,7 @@ static void TPStartNextJob(void) {
     _speedText = _speed >= 1048576 * 0.1 ? [NSString stringWithFormat:@"%.1f MB/s", _speed / 1048576.0]
                : (_speed > 0 ? [NSString stringWithFormat:@"%.0f KB/s", _speed / 1024.0] : nil);
     [_hud setSpeed:_speedText];
+    [self notifyManagerProgress:nil];
     if (_waitingPrefetch) {
         CGFloat overall = (CGFloat)_index / (CGFloat)MAX((NSInteger)1, (NSInteger)_items.count);
         [_hud setProgress:overall subtitle:TPL(@"Waiting for downloads…")];
@@ -969,6 +1196,7 @@ static void TPStartNextJob(void) {
 - (void)queueChanged { [_hud setRows:[self rows]]; }
 
 - (void)jobEnded {
+    if (_didTranscode && _saved > 0 && !_cancelled) TPPostTranscodeNotification(_saved);
     [NSNotificationCenter.defaultCenter removeObserver:self name:@"TPQueueChanged" object:nil];
     if (_bgObserver) { [NSNotificationCenter.defaultCenter removeObserver:_bgObserver]; _bgObserver = nil; }
     if (_bgTask != UIBackgroundTaskInvalid) { [UIApplication.sharedApplication endBackgroundTask:_bgTask]; _bgTask = UIBackgroundTaskInvalid; }
@@ -987,11 +1215,28 @@ static void TPStartNextJob(void) {
     [_session invalidateAndCancel];
     for (NSURL *f in _leftovers) [NSFileManager.defaultManager removeItemAtURL:f error:nil];
     [sJobs removeObject:self];
+    [TPDownloadStore setRecord:_recordID status:4];
+    [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
+}
+
+- (NSString *)recordID { return _cancelled ? nil : _recordID; }
+
+- (void)cancelFromManager {
+    [_hud dismiss];
+    [self cancel];
+}
+
+// The history's index of the current item (retries download only some of a record's items).
+- (NSInteger)recordIndex {
+    id i = _items[MIN(_index, (NSInteger)_items.count - 1)][@"tp_index"];
+    return i ? [i integerValue] : _index;
 }
 
 - (NSString *)titleForCurrent {
-    NSString *t = _items.count <= 1 ? TPL(@"Downloading…")
-        : [NSString stringWithFormat:TPL(@"Downloading %ld of %ld"), (long)MIN(_index + 1, (NSInteger)_items.count), (long)_items.count];
+    // Kept short so the pill stays clear of the buttons at the top of the screen ("5/35 · 14%");
+    // a single file shows only its percentage.
+    NSString *t = _items.count <= 1 ? @""
+        : [NSString stringWithFormat:@"%ld/%ld", (long)MIN(_index + 1, (NSInteger)_items.count), (long)_items.count];
     return t;
 }
 
@@ -1050,10 +1295,12 @@ static void TPStartNextJob(void) {
     if (_index < (NSInteger)_items.count) {
         BOOL failedMore = _failed > _failedAtItemStart;
         _states[@(_index)] = @(failedMore ? 3 : 2);
+        [TPDownloadStore setRecord:_recordID item:[self recordIndex] saved:!failedMore];
     }
     _savedAtItemStart = _saved;
     _failedAtItemStart = _failed;
     _itemFrac = 0;
+    _stageDetail = nil;
     [self cleanupDash];
     _dashTried = NO;
     _index++;
@@ -1101,8 +1348,17 @@ static void TPStartNextJob(void) {
     [_session finishTasksAndInvalidate];
     [self stopTimersAndPrefetch];
     [sJobs removeObject:self];
+    [TPDownloadStore setRecord:_recordID status:2];
     [self jobEnded];
-    if (_useAlbum && _savedIDs.count) TPAddToThreadsAlbum(_savedIDs);
+    [NSNotificationCenter.defaultCenter postNotificationName:@"TPQueueChanged" object:nil];
+    if (_useAlbum && _savedIDs.count) {
+        NSString *albumTitle = @"Threads";
+        if ([TPPrefs boolForKey:TPKeyAlbumByAuthor]) {
+            NSString *author = _recordID.length ? [TPDownloadStore recordWithID:_recordID][@"author"] : nil;
+            if (author.length) albumTitle = [@"@" stringByAppendingString:author];
+        }
+        TPAddToAlbumNamed(albumTitle, _savedIDs);
+    }
     if (_albumDenied && _saved > 0) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [TPHUD toast:TPL(@"Photos access needed to add to the Threads album")];
@@ -1150,8 +1406,9 @@ static void TPStartNextJob(void) {
     double mb = tw / 1048576.0;
     CGFloat frac = te > 0 ? (CGFloat)tw / (CGFloat)te : 0;
     CGFloat itemFrac = frac;
-    if (_dashStage == 1) itemFrac = frac * 0.85;
-    else if (_dashStage == 2) itemFrac = 0.85 + frac * 0.12;
+    BOOL willTranscode = _dashStage && [_items[_index][@"dashTranscode"] boolValue];
+    if (_dashStage == 1) itemFrac = frac * (willTranscode ? 0.42 : 0.85);
+    else if (_dashStage == 2) itemFrac = willTranscode ? (0.42 + frac * 0.08) : (0.85 + frac * 0.12);
     CGFloat overall = ((CGFloat)_index + itemFrac) / (CGFloat)_items.count;
     // Ring: overall percentage. Line 1: quality · which stream · size. Line 2: speed.
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
@@ -1207,6 +1464,7 @@ static void TPStartNextJob(void) {
         NSURL *named = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
                                                [NSString stringWithFormat:@"threads_%@.%@", NSUUID.UUID.UUIDString, ext]]];
         if ([NSFileManager.defaultManager moveItemAtURL:file toURL:named error:nil]) {
+            [TPDownloadStore keepFile:named record:_recordID item:[self recordIndex]];
             [_leftovers addObject:named]; _saved++;
         } else { _failed++; }
         [self nextItem];
@@ -1232,7 +1490,7 @@ static void TPStartNextJob(void) {
             _dashVideoFile = mp4;
             _dashAudioFile = TPFileHasAudio(mp4) ? mp4 : nil;
             _dashStage = 3;
-            [self transcodeDash];
+            [self whenConverterFree:^{ [self transcodeDash]; }];
             return;
         }
         [self saveVideoFile:mp4 completion:^(BOOL ok) { [self itemDone:ok]; }];
@@ -1251,7 +1509,8 @@ static void TPStartNextJob(void) {
     if (ext) {
         NSURL *img = [NSURL fileURLWithPath:[file.path stringByAppendingPathExtension:ext]];
         [NSFileManager.defaultManager moveItemAtURL:file toURL:img error:nil];
-        [self performSave:^PHAssetChangeRequest *{ return [PHAssetChangeRequest creationRequestForAssetFromImageAtFileURL:img]; } completion:^(BOOL ok, NSError *e) {
+        [TPDownloadStore keepFile:img record:_recordID item:[self recordIndex]];
+        [self performSave:^PHAssetChangeRequest *{ return [self creationRequestWithType:PHAssetResourceTypePhoto file:img data:nil ext:ext]; } completion:^(BOOL ok, NSError *e) {
             if (ok) { [NSFileManager.defaultManager removeItemAtURL:img error:nil]; [self itemDone:YES]; return; }
             [self note:[NSString stringWithFormat:@"%@ save file: %@", magic, e.localizedDescription ?: @"?"]];
             [self saveDecodedImageAt:img magic:magic];
@@ -1271,7 +1530,10 @@ static void TPStartNextJob(void) {
 // Photos refuses or interrupts a save while the app is in the background (error 3301). The
 // converted file is kept and saved again once Threads is back in front.
 - (void)saveVideoFile:(NSURL *)file attempt:(NSInteger)attempt completion:(void (^)(BOOL ok))completion {
-    [self performSave:^PHAssetChangeRequest *{ return [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:file]; } completion:^(BOOL ok, NSError *e) {
+    if (attempt == 0) [TPDownloadStore keepFile:file record:_recordID item:[self recordIndex]];
+    [self performSave:^PHAssetChangeRequest *{
+        return [self creationRequestWithType:PHAssetResourceTypeVideo file:file data:nil ext:file.pathExtension.length ? file.pathExtension.lowercaseString : @"mp4"];
+    } completion:^(BOOL ok, NSError *e) {
         BOOL interrupted = !ok && attempt < 2 &&
             (([e.domain isEqualToString:@"PHPhotosErrorDomain"] && (e.code == 3301 || e.code == 3300)) ||
              UIApplication.sharedApplication.applicationState != UIApplicationStateActive);
@@ -1297,11 +1559,97 @@ static void TPStartNextJob(void) {
     }];
 }
 
+// Conversion stage: true while converting or waiting for the converter, when nothing downloads.
+- (BOOL)isDownloading { return !_cancelled && _dashStage != 3; }
+
+static BOOL sTPDisabledIdleTimer = NO;
+
+static void TPSetTranscodeIdleDisabled(BOOL disabled) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIApplication *app = UIApplication.sharedApplication;
+        if (disabled) {
+            if (!app.idleTimerDisabled) {
+                app.idleTimerDisabled = YES;
+                sTPDisabledIdleTimer = YES;
+            }
+        } else {
+            if (sTPDisabledIdleTimer) {
+                app.idleTimerDisabled = NO;
+                sTPDisabledIdleTimer = NO;
+            }
+        }
+    });
+}
+
+static void TPPostTranscodeNotification(NSInteger savedCount) {
+    if (savedCount <= 0) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Only post a system notification when the app is not active in the foreground.
+        if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) return;
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+            void (^deliver)(void) = ^{
+                UNMutableNotificationContent *content = [UNMutableNotificationContent new];
+                content.title = @"ThreadsPulse";
+                content.body = [NSString stringWithFormat:TPL(@"Video conversion finished (%ld saved)"), (long)savedCount];
+                content.sound = [UNNotificationSound defaultSound];
+                UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:NSUUID.UUID.UUIDString content:content trigger:nil];
+                [center addNotificationRequest:req withCompletionHandler:nil];
+            };
+            if (settings.authorizationStatus == UNAuthorizationStatusAuthorized ||
+                settings.authorizationStatus == UNAuthorizationStatusProvisional) {
+                deliver();
+            } else if (settings.authorizationStatus == UNAuthorizationStatusNotDetermined) {
+                [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
+                                      completionHandler:^(BOOL granted, NSError *err) {
+                    if (granted) deliver();
+                }];
+            }
+        }];
+    });
+}
+
+- (void)whenConverterFree:(void (^)(void))go {
+    // This job stops downloading now: let the next queued post start.
+    dispatch_async(dispatch_get_main_queue(), ^{ TPStartNextJob(); });
+    if (sConvertingJob && sConvertingJob != self) {
+        if (!sConvertWaiters) sConvertWaiters = [NSMutableArray array];
+        _stageDetail = TPL(@"Waiting to convert…");
+        [_hud setProgress:-1 subtitle:_stageDetail];
+        [self notifyManagerProgress:_stageDetail];
+        __weak typeof(self) weak = self;
+        [sConvertWaiters addObject:^{
+            typeof(self) s = weak;
+            if (!s || s->_cancelled) return;
+            sConvertingJob = s;
+            TPSetTranscodeIdleDisabled(YES);
+            go();
+        }];
+        return;
+    }
+    sConvertingJob = self;
+    TPSetTranscodeIdleDisabled(YES);
+    go();
+}
+
+- (void)releaseConverter {
+    if (sConvertingJob != self) return;
+    sConvertingJob = nil;
+    while (sConvertWaiters.count && !sConvertingJob) {
+        void (^next)(void) = sConvertWaiters.firstObject;
+        [sConvertWaiters removeObjectAtIndex:0];
+        next();
+    }
+    if (!sConvertingJob) TPSetTranscodeIdleDisabled(NO);
+}
+
 - (void)cleanupDash {
+    [self releaseConverter];
     if (_dashVideoFile) [NSFileManager.defaultManager removeItemAtURL:_dashVideoFile error:nil];
     if (_dashAudioFile) [NSFileManager.defaultManager removeItemAtURL:_dashAudioFile error:nil];
     _dashVideoFile = _dashAudioFile = nil;
     _dashStage = 0;
+    _stageDetail = nil;
     _export = nil;
 }
 
@@ -1359,7 +1707,8 @@ static void TPStartNextJob(void) {
         _dashAudioFile = [self renamedPending:@"m4a"];
         if (!_dashAudioFile) { [self dashFailed:@"audio file"]; return; }
     }
-    [self mergeDash];
+    _dashStage = 3;
+    [self whenConverterFree:^{ [self mergeDash]; }];
 }
 
 - (void)mergeDash {
@@ -1442,6 +1791,7 @@ static void TPStartNextJob(void) {
     }
     [self cleanupDash];
     if (!_allowPhotos) {
+        [TPDownloadStore keepFile:file record:_recordID item:[self recordIndex]];
         [_leftovers addObject:file];
         _saved++;
         [self nextItem];
@@ -1472,10 +1822,9 @@ static void TPStartNextJob(void) {
 }
 
 - (void)saveJPEGData:(NSData *)jpeg completion:(void (^)(BOOL ok, NSError *e))completion {
+    [TPDownloadStore keepData:jpeg extension:@"jpg" record:_recordID item:[self recordIndex]];
     [self performSave:^PHAssetChangeRequest *{
-        PHAssetCreationRequest *r = [PHAssetCreationRequest creationRequestForAsset];
-        [r addResourceWithType:PHAssetResourceTypePhoto data:jpeg options:nil];
-        return r;
+        return [self creationRequestWithType:PHAssetResourceTypePhoto file:nil data:jpeg ext:@"jpg"];
     } completion:completion];
 }
 
@@ -1500,10 +1849,38 @@ static void TPStartNextJob(void) {
     [self nextItem];
 }
 
+- (NSDate *)postDate {
+    NSDictionary *rec = [TPDownloadStore recordWithID:_recordID];
+    return TPDateFromShortcode([rec[@"code"] isKindOfClass:[NSString class]] ? rec[@"code"] : nil);
+}
+
+- (NSString *)fileNameWithExtension:(NSString *)ext {
+    if (![TPPrefs boolForKey:TPKeyNameFromPost]) return nil;
+    NSDictionary *rec = [TPDownloadStore recordWithID:_recordID];
+    NSString *author = [rec[@"author"] isKindOfClass:[NSString class]] ? rec[@"author"] : nil;
+    return [TPDownloader fileNameWithAuthor:author country:[TPAuthorInfo locationForUsername:author]
+                                       date:[self postDate] ?: NSDate.date
+                                       code:[rec[@"code"] isKindOfClass:[NSString class]] ? rec[@"code"] : nil
+                                      index:[self recordIndex] count:(NSInteger)[rec[@"items"] count]
+                                      label:([rec[@"kind"] isEqualToString:@"avatar"] || [rec[@"kind"] isEqualToString:@"cover"]) ? rec[@"kind"] : nil extension:ext];
+}
+
+- (PHAssetCreationRequest *)creationRequestWithType:(PHAssetResourceType)type file:(NSURL *)file data:(NSData *)data ext:(NSString *)ext {
+    PHAssetCreationRequest *r = [PHAssetCreationRequest creationRequestForAsset];
+    PHAssetResourceCreationOptions *o = nil;
+    NSString *name = [self fileNameWithExtension:ext];
+    if (name) { o = [PHAssetResourceCreationOptions new]; o.originalFilename = name; }
+    if (file) [r addResourceWithType:type fileURL:file options:o];
+    else [r addResourceWithType:type data:data options:o];
+    return r;
+}
+
 - (void)performSave:(PHAssetChangeRequest *(^)(void))changes completion:(void (^)(BOOL ok, NSError *e))completion {
     __block NSString *assetID = nil;
+    NSDate *postDate = [TPPrefs boolForKey:TPKeyPostDate] ? [self postDate] : nil;
     [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
         PHAssetChangeRequest *r = changes();
+        if (postDate) r.creationDate = postDate;
         assetID = r.placeholderForCreatedAsset.localIdentifier;
     } completionHandler:^(BOOL ok, NSError *e) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -1968,7 +2345,11 @@ static BOOL TPCanHardwareDecode(AVAsset *asset, AVAssetTrack *track, BOOL tenBit
     // softVideo: VP9/AV1 decoded + re-encoded. Otherwise H.264/HEVC samples are copied as-is and
     // only the audio needs work (e.g. Opus → AAC).
     BOOL softVideo = [_items[_index][@"dashTranscode"] boolValue];
+    if (softVideo) _didTranscode = YES;
     NSString *stepLabel = softVideo ? TPL(@"Converting video…") : TPL(@"Merging video and audio…");
+    if (softVideo && _itemFrac > 0.5) _itemFrac = 0.5;
+    _stageDetail = [NSString stringWithFormat:@"%@ 0%%", stepLabel];
+    [self notifyManagerProgress:_stageDetail];
     __weak typeof(self) weak = self;
     _wentBackground = UIApplication.sharedApplication.applicationState == UIApplicationStateBackground;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -1981,7 +2362,9 @@ static BOOL TPCanHardwareDecode(AVAsset *asset, AVAssetTrack *track, BOOL tenBit
                 if (s->_wentBackground && s->_resumeTries < 2 && !s->_cancelled) {
                     s->_resumeTries++;
                     [s note:[@"paused in background: " stringByAppendingString:why]];
-                    [s->_hud setProgress:-1 subtitle:TPL(@"Paused — continues when you return to Threads")];
+                    s->_stageDetail = TPL(@"Paused — continues when you return to Threads");
+                    [s->_hud setProgress:-1 subtitle:s->_stageDetail];
+                    [s notifyManagerProgress:s->_stageDetail];
                     __block id obs = nil;
                     obs = [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil
                                                                            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
@@ -2164,10 +2547,14 @@ static BOOL TPCanHardwareDecode(AVAsset *asset, AVAssetTrack *track, BOOL tenBit
                     dispatch_async(dispatch_get_main_queue(), ^{
                         typeof(self) s2 = weak;
                         if (!s2 || s2->_cancelled) return;
-                        CGFloat overall = ((CGFloat)index + 0.97 + 0.03 * f) / (CGFloat)s2->_items.count;
-                        s2->_itemFrac = 0.97 + 0.03 * f;
-                        [s2->_hud setProgress:overall subtitle:[NSString stringWithFormat:@"%@ %.0f%%", stepLabel, f * 100]];
+                        CGFloat itemF = softVideo ? (0.50 + 0.50 * f) : (0.97 + 0.03 * f);
+                        CGFloat overall = ((CGFloat)index + itemF) / (CGFloat)s2->_items.count;
+                        s2->_itemFrac = itemF;
+                        NSString *sub = [NSString stringWithFormat:@"%@ %.0f%%", stepLabel, f * 100];
+                        s2->_stageDetail = sub;
+                        [s2->_hud setProgress:overall subtitle:sub];
                         [s2->_hud setRows:[s2 rows]];
+                        [s2 notifyManagerProgress:sub];
                     });
                 }
             }

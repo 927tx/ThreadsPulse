@@ -1,3 +1,4 @@
+#import <SafariServices/SafariServices.h>
 // ThreadsPulse: hooks for Threads (com.burbn.barcelona).
 //
 // Class and selector names come from a class-dump of the Threads executable. Many of them
@@ -12,6 +13,7 @@
 #import "TPPrefs.h"
 #import "TPURLCleaner.h"
 #import "TPDownloader.h"
+#import "TPDownloadManager.h"
 #import "TPSettingsViewController.h"
 #import "TPLocalization.h"
 #import "TPUI.h"
@@ -19,6 +21,8 @@
 #import "TPCapsule.h"
 #import "TPVersion.h"
 #import "TPSideloadFix.h"
+#import <AudioToolbox/AudioToolbox.h>
+#import <dlfcn.h>
 #import "TPWelcomeViewController.h"
 #import "TPUpdateChecker.h"
 #import "TPAuthorInfo.h"
@@ -222,6 +226,13 @@ static inline void TPRememberPlayer(id view, id player) {
 }
 
 static UIViewController *TPLightboxController(UIView *v);
+static NSDictionary *TPPostContextForView(UIView *v);
+static void TPShowPostTextActions(UIView *cell, NSString *author, UIView *anchor);
+
+// Long-press menu entry shared by every download button.
+static TPMenuItem *TPManagerMenuItem(void) {
+    return [TPMenuItem itemWithKey:@"Download Manager" symbol:@"tray.full" handler:^{ [TPDownloadManagerViewController present]; }];
+}
 
 static void TPEnsureVideoButton(UIView *host) {
     UIButton *b = objc_getAssociatedObject(host, kTPButtonKey);
@@ -248,8 +259,8 @@ static void TPEnsureVideoButton(UIView *host) {
                     [TPHUD toast:TPL(@"No download link found. Play the video for a moment, then try again.")];
                 return;
             }
-            [TPDownloader downloadVideoURL:url dash:dash];
-        } menuItems:nil];
+            [TPDownloader downloadVideoURL:url dash:dash context:TPPostContextForView(v)];
+        } menuItems:@[TPManagerMenuItem()]];
         [host addSubview:b];
         objc_setAssociatedObject(host, kTPButtonKey, b, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         TPDebug(TPL(@"Download button added"));
@@ -285,7 +296,6 @@ static void TPEnsureVideoButton(UIView *host) {
 %end
 
 // Batch download for a whole post (photos and videos).
-static const void *kTPImgBtnKey   = &kTPImgBtnKey;
 static const void *kTPBatchBtnKey = &kTPBatchBtnKey;
 
 static void TPCollectImageViews(UIView *v, NSMutableArray<UIImageView *> *out, int depth) {
@@ -501,38 +511,47 @@ static NSArray<NSDictionary *> *TPCollectPostMediaFromModel(UIView *cellRoot) {
 // Media is read from the carousel cell's `items` (BCNFeedMediaViewModel -> IGPhoto / IGVideo)
 // rather than from visible cells, so items that are scrolled away or reused are still found.
 // The view model's `kind` is a Swift enum; pointers and classes are validated before reading it.
-static NSSet<NSValue *> *TPClassFamily(NSString *baseName) {
-    Class base = NSClassFromString(baseName);
-    if (!base) return [NSSet set];
-    NSMutableSet<NSValue *> *set = [NSMutableSet set];
-    unsigned int n = 0;
-    Class *all = objc_copyClassList(&n);
-    for (unsigned int i = 0; i < n; i++) {
-        for (Class k = all[i]; k; k = class_getSuperclass(k)) {
-            if (k == base) { [set addObject:[NSValue valueWithPointer:(__bridge const void *)all[i]]]; break; }
-        }
+// Whether a class pointer read from memory is `base` or a subclass of it. Every class on the
+// chain must lie inside a loaded image, so a stray pointer is never followed.
+// objc_copyClassList is avoided: it loads every class in Threads at once, and on iOS 16 some of
+// them need newer system code and crash while loading.
+static BOOL TPIsaInFamily(uintptr_t isa, Class base) {
+    if (!base || !isa) return NO;
+    static CFMutableDictionaryRef cache;
+    if (!cache) cache = CFDictionaryCreateMutable(NULL, 0, NULL, NULL);
+    const void *key = (const void *)(isa ^ (uintptr_t)(__bridge void *)base);
+    const void *hit = CFDictionaryGetValue(cache, key);
+    if (hit) return hit == (const void *)2;
+    BOOL found = NO;
+    Class k = (__bridge Class)(void *)isa;
+    for (int i = 0; k && i < 64; i++) {
+        Dl_info info;
+        if (!dladdr((__bridge const void *)k, &info) || !info.dli_fname) break;
+        if (k == base) { found = YES; break; }
+        k = class_getSuperclass(k);
     }
-    free(all);
-    return set;
+    if (CFDictionaryGetCount(cache) > 4096) CFDictionaryRemoveAllValues(cache);
+    CFDictionarySetValue(cache, key, found ? (const void *)2 : (const void *)1);
+    return found;
 }
 
-static NSSet<NSValue *> *TPPhotoClasses(void) {
-    static NSSet *s; static dispatch_once_t once;
-    dispatch_once(&once, ^{ s = TPClassFamily(@"IGPhoto"); });
-    return s;
+static Class TPPhotoClasses(void) {
+    static Class c; static dispatch_once_t once;
+    dispatch_once(&once, ^{ c = NSClassFromString(@"IGPhoto"); });
+    return c;
 }
-static NSSet<NSValue *> *TPVideoClasses(void) {
-    static NSSet *s; static dispatch_once_t once;
-    dispatch_once(&once, ^{ s = TPClassFamily(@"IGVideo"); });
-    return s;
+static Class TPVideoClasses(void) {
+    static Class c; static dispatch_once_t once;
+    dispatch_once(&once, ^{ c = NSClassFromString(@"IGVideo"); });
+    return c;
 }
 
-static id TPObjectFromWord(uintptr_t w, NSSet<NSValue *> *allowed) {
+static id TPObjectFromWord(uintptr_t w, Class base) {
     uintptr_t p = w & 0x0000000FFFFFFFF8ULL;
-    if (p < 0x100000000ULL) return nil;
+    if (p < 0x100000000ULL || !base) return nil;
     if (!malloc_zone_from_ptr((const void *)p)) return nil;
     uintptr_t isa = *(const uintptr_t *)p & 0x0000000FFFFFFFF8ULL;
-    if (![allowed containsObject:[NSValue valueWithPointer:(const void *)isa]]) return nil;
+    if (!TPIsaInFamily(isa, base)) return nil;
     return (__bridge id)(void *)p;
 }
 
@@ -702,17 +721,28 @@ static NSString *TPPostCodeForCell(UIView *cellRoot) {
         if (!parent) { code = TPCodeFromMedia(frag); if (code) return code; }
     }
 
-    UICollectionView *feed = nil;
-    for (UIView *v = cellRoot.superview; v; v = v.superview) if ([v isKindOfClass:[UICollectionView class]]) { feed = (UICollectionView *)v; break; }
-    if (feed && [cellRoot isKindOfClass:[UICollectionViewCell class]]) {
-        NSIndexPath *ip = [feed indexPathForCell:(UICollectionViewCell *)cellRoot];
+    UICollectionViewCell *curCell = [cellRoot isKindOfClass:[UICollectionViewCell class]] ? (UICollectionViewCell *)cellRoot : nil;
+    for (UIView *v = cellRoot.superview; v; v = v.superview) {
+        if ([v isKindOfClass:[UICollectionViewCell class]]) { curCell = (UICollectionViewCell *)v; continue; }
+        if (![v isKindOfClass:[UICollectionView class]] || !curCell) continue;
+        UICollectionView *feed = (UICollectionView *)v;
+        NSIndexPath *ip = [feed indexPathForCell:curCell];
+        if (!ip) continue;
         for (UICollectionViewCell *c in feed.visibleCells) {
-            if (!ip || [feed indexPathForCell:c].section != ip.section) continue;
-            id m = [TPDownloader ivarValue:c name:@"cellMediaFragment"];
-            NSString *code = TPCodeFromMedia(m);
-            if (code) return code;
-            id pk = [TPDownloader safeValue:m key:@"pk"];
-            if ([pk isKindOfClass:[NSString class]] && [pk length]) return TPShortcodeFromPK(pk);
+            NSIndexPath *cip = [feed indexPathForCell:c];
+            if (!cip || cip.section != ip.section) continue;
+            for (NSString *ivarName in @[@"parentMediaFragment", @"cellMediaFragment", @"mediaFragment"]) {
+                id m = [TPDownloader ivarValue:c name:ivarName];
+                if (!m) continue;
+                id parent = [TPDownloader safeValue:m key:@"carouselParent"];
+                NSString *code = TPCodeFromMedia(parent) ?: TPCodeFromMedia(m);
+                if (code) return code;
+                id pid = [TPDownloader safeValue:m key:@"carouselParentId"] ?: [TPDownloader safeValue:parent key:@"pk"] ?: [TPDownloader safeValue:m key:@"pk"];
+                if ([pid isKindOfClass:[NSString class]] && [pid length]) {
+                    NSString *sc = TPShortcodeFromPK(pid);
+                    if (sc.length) return sc;
+                }
+            }
         }
     }
 
@@ -909,6 +939,232 @@ static void TPUpgradeFromPage(NSURL *page, BOOL avatars, NSString *label, NSStri
     attempt(0);
 }
 
+static NSString *TPAuthorFromMedia(id media) {
+    if (!media) return nil;
+    for (NSString *k in @[@"user", @"owner"]) {
+        id owner = [TPDownloader safeValue:media key:k];
+        id u = [TPDownloader safeValue:owner key:@"username"];
+        if ([u isKindOfClass:[NSString class]] && [u length]) return u;
+        for (NSString *pkKey in @[@"pk", @"userPk", @"id"]) {
+            id pk = [TPDownloader safeValue:owner key:pkKey];
+            NSString *pkStr = [pk isKindOfClass:[NSString class]] ? pk : ([pk isKindOfClass:[NSNumber class]] ? [pk stringValue] : nil);
+            NSString *cached = pkStr.length ? [TPAuthorInfo usernameForPk:pkStr] : nil;
+            if (cached.length) return cached;
+        }
+    }
+    for (NSString *pkKey in @[@"userPk", @"ownerPk", @"userId"]) {
+        id pk = [TPDownloader safeValue:media key:pkKey];
+        NSString *pkStr = [pk isKindOfClass:[NSString class]] ? pk : ([pk isKindOfClass:[NSNumber class]] ? [pk stringValue] : nil);
+        NSString *cached = pkStr.length ? [TPAuthorInfo usernameForPk:pkStr] : nil;
+        if (cached.length) return cached;
+    }
+    return nil;
+}
+
+static Class TPFeedHeaderClass(void) {
+    static Class c;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ c = NSClassFromString(@"_TtC21BCNFeedItemHeaderCell32BCNFeedItemHeaderCellContentView"); });
+    return c;
+}
+
+static void TPCollectHeaders(UIView *v, NSMutableArray<UIView *> *out, int depth) {
+    if (!v || depth > 9) return;
+    if ([v isKindOfClass:TPFeedHeaderClass()]) { [out addObject:v]; return; }
+    for (UIView *s in v.subviews) TPCollectHeaders(s, out, depth + 1);
+}
+
+// The post header (avatar + @author) closest above the media: a post's header always sits right
+// above its photos or video, whichever cells the feed splits them into.
+static UIView *TPHeaderAboveView(UIView *media) {
+    UIWindow *w = media.window;
+    if (!w || !TPFeedHeaderClass()) return nil;
+    CGFloat top = CGRectGetMinY([media convertRect:media.bounds toView:w]);
+    for (UIView *p = media.superview; p; p = p.superview) {
+        if (![p isKindOfClass:[UICollectionView class]]) continue;
+        NSMutableArray<UIView *> *headers = [NSMutableArray array];
+        for (UICollectionViewCell *c in [(UICollectionView *)p visibleCells]) TPCollectHeaders(c, headers, 0);
+        UIView *best = nil;
+        CGFloat bestGap = CGFLOAT_MAX;
+        for (UIView *h in headers) {
+            if (!h.window || h.hidden) continue;
+            CGFloat bottom = CGRectGetMaxY([h convertRect:h.bounds toView:w]);
+            CGFloat gap = top - bottom;
+            if (gap >= -4 && gap < bestGap) { bestGap = gap; best = h; }
+        }
+        // Beyond a screen's height it belongs to another post.
+        if (best && bestGap < w.bounds.size.height) return best;
+    }
+    return nil;
+}
+
+// A quoted post inside another post (BCNFeedNestedPostCell) has its own author, text and code.
+// Media downloaded from inside the quote belongs to the quoted post, not the one quoting it.
+static UIView *TPNestedPostAncestor(UIView *v) {
+    static Class nestedCls, quoteCls;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        nestedCls = objc_getClass("_TtC21BCNFeedNestedPostCell21BCNFeedNestedPostCell");
+        quoteCls = objc_getClass("_TtC21BCNFeedNestedPostCell22BCNFeedNestedQuoteCell");
+    });
+    int depth = 0;
+    for (UIView *p = v; p && depth < 14; p = p.superview, depth++) {
+        if ((nestedCls && [p isKindOfClass:nestedCls]) || (quoteCls && [p isKindOfClass:quoteCls])) return p;
+        if ([p isKindOfClass:[UICollectionView class]] && depth > 0 && !p.superview) break;
+    }
+    return nil;
+}
+
+// @{ author, code, text } of the quoted post (any may be missing).
+static NSDictionary *TPNestedPostInfo(UIView *nested) {
+    if (!nested) return nil;
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+    id media = [TPDownloader ivarValue:nested name:@"media"];
+    if (media) {
+        id user = [TPDownloader safeValue:media key:@"user"];
+        id name = user ? [TPDownloader safeValue:user key:@"username"] : nil;
+        if ([name isKindOfClass:[NSString class]] && [name length]) out[@"author"] = name;
+        id code = [TPDownloader safeValue:media key:@"code"];
+        if ([code isKindOfClass:[NSString class]] && [code length]) out[@"code"] = code;
+        id cap = [TPDownloader safeValue:media key:@"caption"];
+        id text = [cap isKindOfClass:[NSString class]] ? cap : [TPDownloader safeValue:cap key:@"text"];
+        if ([text isKindOfClass:[NSString class]] && [text length]) out[@"text"] = text;
+    }
+    return out;
+}
+
+// Post code and author for the download history (either may be missing).
+static NSDictionary *TPPostContextForCell(UIView *cellRoot) {
+    NSMutableDictionary *ctx = [NSMutableDictionary dictionaryWithObject:@"post" forKey:@"kind"];
+    if (!cellRoot) return ctx;
+    NSDictionary *quoted = TPNestedPostInfo(TPNestedPostAncestor(cellRoot));
+    if ([quoted[@"author"] length]) {
+        ctx[@"author"] = quoted[@"author"];
+        if ([quoted[@"code"] length]) ctx[@"code"] = quoted[@"code"];
+        return ctx;
+    }
+    NSString *code = TPPostCodeForCell(cellRoot);
+    UIView *header = TPHeaderAboveView(cellRoot);
+    NSDictionary *info = header ? [TPAuthorInfo postInfoInHeader:header] : nil;
+
+    // Check if header shares the same outer feed section (carousel/child media can have a different
+    // media code from the outer post header, so don't discard a same-section header's author).
+    BOOL headerSameSection = NO;
+    if (header) {
+        UICollectionViewCell *curCell = [cellRoot isKindOfClass:[UICollectionViewCell class]] ? (UICollectionViewCell *)cellRoot : nil;
+        for (UIView *v = cellRoot.superview; v; v = v.superview) {
+            if ([v isKindOfClass:[UICollectionViewCell class]]) { curCell = (UICollectionViewCell *)v; continue; }
+            if ([v isKindOfClass:[UICollectionView class]] && curCell) {
+                UICollectionView *cv = (UICollectionView *)v;
+                NSIndexPath *ip = [cv indexPathForCell:curCell];
+                if (ip && [header isDescendantOfView:cv]) {
+                    for (UIView *hv = header; hv && hv != cv; hv = hv.superview) {
+                        if ([hv isKindOfClass:[UICollectionViewCell class]]) {
+                            NSIndexPath *hip = [cv indexPathForCell:(UICollectionViewCell *)hv];
+                            if (hip && hip.section == ip.section) headerSameSection = YES;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    NSString *headerCode = info[@"code"] ?: ([info[@"mediaId"] length] ? TPShortcodeFromPK(info[@"mediaId"]) : nil);
+    if (code && headerCode && ![code isEqualToString:headerCode] && !headerSameSection) info = nil;
+    if (!code) code = info[@"code"];
+    if (!code && [info[@"mediaId"] length]) code = TPShortcodeFromPK(info[@"mediaId"]);
+    if (code) ctx[@"code"] = code;
+
+    NSString *author = info[@"author"];
+    if (!author) {
+        NSMutableArray<UIView *> *itemCells = [NSMutableArray array];
+        TPCollectMediaItemCells(cellRoot, itemCells, 0);
+        for (UIView *c in itemCells) {
+            id frag = [TPDownloader ivarValue:c name:@"mediaFragment"];
+            id parent = [TPDownloader ivarValue:c name:@"parentMediaFragment"] ?: [TPDownloader safeValue:frag key:@"carouselParent"];
+            author = TPAuthorFromMedia(parent) ?: TPAuthorFromMedia(frag);
+            if (author) break;
+        }
+    }
+    // Walk ALL ancestor UICollectionViews (not just an inner horizontal carousel) to inspect
+    // same-section visible cells and headers in the outer feed.
+    if (!author || !code.length) {
+        UICollectionViewCell *curCell = [cellRoot isKindOfClass:[UICollectionViewCell class]] ? (UICollectionViewCell *)cellRoot : nil;
+        for (UIView *v = cellRoot.superview; v && (!author || !code.length); v = v.superview) {
+            if ([v isKindOfClass:[UICollectionViewCell class]]) { curCell = (UICollectionViewCell *)v; continue; }
+            if (![v isKindOfClass:[UICollectionView class]] || !curCell) continue;
+            UICollectionView *feed = (UICollectionView *)v;
+            NSIndexPath *ip = [feed indexPathForCell:curCell];
+            if (!ip) continue;
+            for (UICollectionViewCell *c in feed.visibleCells) {
+                NSIndexPath *cip = [feed indexPathForCell:c];
+                if (!cip || cip.section != ip.section) continue;
+                for (NSString *ivarName in @[@"parentMediaFragment", @"cellMediaFragment", @"mediaFragment"]) {
+                    id m = [TPDownloader ivarValue:c name:ivarName];
+                    author = TPAuthorFromMedia([TPDownloader safeValue:m key:@"carouselParent"]) ?: TPAuthorFromMedia(m);
+                    if (author) break;
+                }
+                if (author) break;
+                NSMutableArray<UIView *> *hdrs = [NSMutableArray array];
+                TPCollectHeaders(c, hdrs, 0);
+                for (UIView *h in hdrs) {
+                    NSDictionary *hi = [TPAuthorInfo postInfoInHeader:h];
+                    if (!code.length) {
+                        code = hi[@"code"] ?: ([hi[@"mediaId"] length] ? TPShortcodeFromPK(hi[@"mediaId"]) : nil);
+                        if (code.length) ctx[@"code"] = code;
+                    }
+                    NSString *ha = hi[@"author"];
+                    if (ha.length) { author = ha; break; }
+                }
+                if (author) break;
+            }
+        }
+    }
+    if (!author && code.length) author = [TPAuthorInfo authorForPostCode:code];
+    if (author) ctx[@"author"] = author;
+    if ([TPPrefs boolForKey:TPKeyDebugToast])
+        [TPDownloader appendPendingReport:[NSString stringWithFormat:@"[history] code %@ · author %@ (%@ · %@ · media %@)\n",
+                                           code ?: @"-", author ?: @"-", header ? @"header" : @"no header",
+                                           info[@"via"] ?: @"-", info[@"mediaId"] ?: @"-"]];
+    return ctx;
+}
+
+static NSDictionary *TPPostContextForView(UIView *v) {
+    for (UIView *p = v; p; p = p.superview)
+        if ([p isKindOfClass:[UICollectionViewCell class]]) return TPPostContextForCell(p);
+    // Non-cell fallback (e.g. fullscreen player or lightbox overlay).
+    NSMutableDictionary *ctx = [NSMutableDictionary dictionaryWithObject:@"post" forKey:@"kind"];
+    NSString *code = nil, *author = nil;
+    for (UIView *p = v; p && (!code || !author); p = p.superview) {
+        for (NSString *ivarName in @[@"postItem", @"parentMediaFragment", @"cellMediaFragment", @"mediaFragment"]) {
+            id m = [TPDownloader ivarValue:p name:ivarName];
+            if (!m) continue;
+            if (!code) {
+                code = TPCodeFromMedia([TPDownloader safeValue:m key:@"carouselParent"])
+                    ?: TPCodeFromMedia([TPDownloader safeValue:m key:@"topLevelPost"])
+                    ?: TPCodeFromMedia(m);
+                if (!code) {
+                    id pk = [TPDownloader safeValue:m key:@"pk"] ?: [TPDownloader safeValue:m key:@"mediaID"];
+                    if ([pk isKindOfClass:[NSString class]] && [pk length]) code = TPShortcodeFromPK(pk);
+                }
+            }
+            if (!author) {
+                author = TPAuthorFromMedia([TPDownloader safeValue:m key:@"carouselParent"])
+                      ?: TPAuthorFromMedia([TPDownloader safeValue:m key:@"topLevelPost"])
+                      ?: TPAuthorFromMedia(m);
+            }
+        }
+    }
+    if (!author && code.length) author = [TPAuthorInfo authorForPostCode:code];
+    if (code) ctx[@"code"] = code;
+    if (author) ctx[@"author"] = author;
+    if ([TPPrefs boolForKey:TPKeyDebugToast])
+        [TPDownloader appendPendingReport:[NSString stringWithFormat:@"[history] view code %@ · author %@\n",
+                                           code ?: @"-", author ?: @"-"]];
+    return ctx;
+}
+
 static void TPBatchDownload(UIView *cell, NSInteger filter) {
     BOOL debug = [TPPrefs boolForKey:TPKeyDebugToast];
     gTPSizeLog = debug ? [NSMutableString string] : nil;
@@ -934,12 +1190,119 @@ static void TPBatchDownload(UIView *cell, NSInteger filter) {
         return;
     }
     if (skipped) [TPHUD toast:[NSString stringWithFormat:TPL(@"%ld items skipped (no download link)"), (long)skipped]];
+    NSDictionary *ctx = TPPostContextForCell(cell);
     if ([TPPrefs boolForKey:TPKeyOriginalImage]) {
-        NSString *code = TPItemsHaveImage(items) ? TPPostCodeForCell(cell) : nil;
-        TPUpgradeToOriginals(code, items, ^(NSArray<NSDictionary *> *upgraded) { [TPDownloader downloadItems:upgraded]; });
+        NSString *code = TPItemsHaveImage(items) ? ctx[@"code"] : nil;
+        TPUpgradeToOriginals(code, items, ^(NSArray<NSDictionary *> *upgraded) { [TPDownloader downloadItems:upgraded context:ctx]; });
     } else {
-        [TPDownloader downloadItems:items];
+        [TPDownloader downloadItems:items context:ctx];
     }
+}
+
+// =============================================================================
+// One-time tips: a small bubble next to a control whose long-press does something, shown once
+// per control ever and at most one per launch. It sits in its own pass-through layer on the
+// window: any touch, a move of the control (scrolling), or 5 seconds removes it.
+// =============================================================================
+@interface TPTipLayer : UIView
+@property (nonatomic, weak) UIView *anchor;
+@property (nonatomic) CGRect anchorFrame;
+@property (nonatomic, strong) NSTimer *timer;
+@property (nonatomic) CFTimeInterval shownAt;
+- (void)dismiss;
+@end
+
+@implementation TPTipLayer
+- (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
+    // Never takes the touch: the touch goes on to whatever is underneath, and the tip leaves.
+    if (e.type == UIEventTypeTouches) dispatch_async(dispatch_get_main_queue(), ^{ [self dismiss]; });
+    return nil;
+}
+- (void)check {
+    UIView *a = self.anchor;
+    BOOL gone = !a || !a.window || a.hidden || a.alpha < 0.05;
+    BOOL moved = !gone && !CGRectEqualToRect(CGRectIntegral([a convertRect:a.bounds toView:nil]), self.anchorFrame);
+    if (gone || moved || CACurrentMediaTime() - self.shownAt > 5) [self dismiss];
+}
+- (void)dismiss {
+    [self.timer invalidate];
+    self.timer = nil;
+    if (!self.superview) return;
+    [UIView animateWithDuration:0.18 animations:^{ self.alpha = 0; } completion:^(BOOL f) { [self removeFromSuperview]; }];
+}
+@end
+
+static BOOL gTPTipShownThisLaunch;
+
+static void TPShowTipOnce(NSString *ident, UIView *anchor, NSString *text) {
+    if (gTPTipShownThisLaunch || !anchor.window || anchor.hidden) return;
+    NSString *key = [@"tp_tip_seen_" stringByAppendingString:ident];
+    NSUserDefaults *d = [TPPrefs defaults];
+    if ([d boolForKey:key]) return;
+    UIWindow *win = anchor.window;
+    // Not over another screen (welcome, settings, a sheet).
+    if (win.rootViewController.presentedViewController) return;
+    CGRect af = CGRectIntegral([anchor convertRect:anchor.bounds toView:nil]);
+    UIEdgeInsets safe = win.safeAreaInsets;
+    if (CGRectGetMinY(af) < 0 || CGRectGetMaxY(af) > win.bounds.size.height - safe.bottom - 140) return;
+    gTPTipShownThisLaunch = YES;
+    [d setBool:YES forKey:key];
+
+    TPTipLayer *layer = [[TPTipLayer alloc] initWithFrame:win.bounds];
+    layer.anchor = anchor;
+    layer.anchorFrame = af;
+    UIColor *accent = [TPUI accent];
+    CGFloat maxW = MIN(260, win.bounds.size.width - 32);
+    UILabel *l = [UILabel new];
+    l.text = text;
+    l.numberOfLines = 0;
+    l.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    l.textColor = UIColor.whiteColor;
+    CGSize ts = [l sizeThatFits:CGSizeMake(maxW - 24, CGFLOAT_MAX)];
+    CGFloat bw = ceil(ts.width) + 24, bh = ceil(ts.height) + 18, arrow = 7;
+    // Below the control when there's room, else above; right edges lined up where possible.
+    BOOL below = CGRectGetMaxY(af) + arrow + bh + 8 < win.bounds.size.height - safe.bottom - 80;
+    CGFloat bx = MIN(MAX(12, CGRectGetMidX(af) - bw + 22), win.bounds.size.width - bw - 12);
+    CGFloat by = below ? CGRectGetMaxY(af) + arrow + 2 : CGRectGetMinY(af) - arrow - 2 - bh;
+    UIView *bubble = [[UIView alloc] initWithFrame:CGRectMake(bx, by, bw, bh)];
+    bubble.backgroundColor = accent;
+    bubble.layer.cornerRadius = 10;
+    bubble.layer.cornerCurve = kCACornerCurveContinuous;
+    l.frame = CGRectMake(12, 9, bw - 24, bh - 18);
+    [bubble addSubview:l];
+    CAShapeLayer *tri = [CAShapeLayer layer];
+    CGFloat ax = MIN(MAX(CGRectGetMidX(af), bx + 14), bx + bw - 14);
+    UIBezierPath *path = [UIBezierPath bezierPath];
+    if (below) { [path moveToPoint:CGPointMake(ax - arrow, by)]; [path addLineToPoint:CGPointMake(ax, by - arrow)]; [path addLineToPoint:CGPointMake(ax + arrow, by)]; }
+    else { [path moveToPoint:CGPointMake(ax - arrow, by + bh)]; [path addLineToPoint:CGPointMake(ax, by + bh + arrow)]; [path addLineToPoint:CGPointMake(ax + arrow, by + bh)]; }
+    [path closePath];
+    tri.path = path.CGPath;
+    tri.fillColor = accent.CGColor;
+    [layer.layer addSublayer:tri];
+    [layer addSubview:bubble];
+    bubble.isAccessibilityElement = YES;
+    bubble.accessibilityLabel = text;
+
+    layer.alpha = 0;
+    [win addSubview:layer];
+    layer.shownAt = CACurrentMediaTime();
+    [UIView animateWithDuration:0.2 animations:^{ layer.alpha = 1; }];
+    __weak TPTipLayer *wl = layer;
+    layer.timer = [NSTimer scheduledTimerWithTimeInterval:0.15 repeats:YES block:^(NSTimer *t) {
+        TPTipLayer *s = wl;
+        if (!s) { [t invalidate]; return; }
+        [s check];
+    }];
+}
+
+// Offer a tip a moment after a control appears, once it has settled on screen.
+static void TPOfferTip(NSString *ident, UIView *anchor, NSString *textKey, double delay) {
+    if (gTPTipShownThisLaunch || [[TPPrefs defaults] boolForKey:[@"tp_tip_seen_" stringByAppendingString:ident]]) return;
+    __weak UIView *wa = anchor;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIView *a = wa;
+        if (a) TPShowTipOnce(ident, a, TPL(textKey));
+    });
 }
 
 static void TPEnsureBatchButton(UIView *cell) {
@@ -959,9 +1322,11 @@ static void TPEnsureBatchButton(UIView *cell) {
                                               handler:^{ if (wc) TPBatchDownload(wc, 1); }];
         TPMenuItem *vids = [TPMenuItem itemWithKey:@"Download Videos Only" symbol:@"video"
                                               handler:^{ if (wc) TPBatchDownload(wc, 2); }];
+        TPMenuItem *text = [TPMenuItem itemWithKey:@"Post Text" symbol:@"text.quote"
+                                              handler:^{ UIView *c = wc; if (c) TPShowPostTextActions(c, nil, objc_getAssociatedObject(c, kTPBatchBtnKey)); }];
         b = [TPUI circleButtonWithSymbol:@"arrow.down.to.line" diameter:d onTap:^{
             if (wc) TPBatchDownload(wc, 0);
-        } menuItems:@[all, imgs, vids]];
+        } menuItems:@[all, imgs, vids, text, TPManagerMenuItem()]];
         [cell addSubview:b];
         objc_setAssociatedObject(cell, kTPBatchBtnKey, b, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         TPDebug(TPL(@"Download button added"));
@@ -977,12 +1342,13 @@ static void TPEnsureBatchButton(UIView *cell) {
     CGFloat y = CGRectGetHeight(r) >= d + 20 ? CGRectGetMinY(r) + 10 : CGRectGetMidY(r) - d / 2;
     b.frame = CGRectMake(CGRectGetMaxX(r) - d - 10, y, d, d);
     if (cell.subviews.lastObject != b) [cell bringSubviewToFront:b];
+    TPOfferTip(@"download_btn", b, @"Long-press for photos only, videos only, the post text or the download manager", 1.2);
 }
 
-static NSSet<NSValue *> *TPMediaClasses(void) {
-    static NSSet *s; static dispatch_once_t once;
-    dispatch_once(&once, ^{ s = TPClassFamily(@"IGMedia"); });
-    return s;
+static Class TPMediaClasses(void) {
+    static Class c; static dispatch_once_t once;
+    dispatch_once(&once, ^{ c = NSClassFromString(@"IGMedia"); });
+    return c;
 }
 
 static NSString *TPPostCodeForLightbox(UIView *cell) {
@@ -1033,7 +1399,7 @@ static NSArray<NSDictionary *> *TPLightboxPagesPhotos(UIView *host, NSMutableStr
     NSMutableSet *seen = [NSMutableSet set];
     for (id o in objs) {
         NSDictionary *d = nil;
-        id media = [TPMediaClasses() containsObject:[NSValue valueWithPointer:(__bridge void *)[o class]]] ? o : nil;
+        id media = TPMediaClasses() && [o isKindOfClass:TPMediaClasses()] ? o : nil;
         if (!media) media = [TPDownloader safeValue:o key:@"media"] ?: [TPDownloader safeValue:o key:@"postItem"];
         if (media) d = TPItemForMedia(media);
         if (!d || [d[@"failed"] boolValue]) {
@@ -1096,6 +1462,21 @@ static NSArray<NSDictionary *> *TPLightboxPostVideos(UIView *host) {
     return items;
 }
 
+static NSDictionary *TPPostContextForLightbox(UIView *host) {
+    NSMutableDictionary *ctx = [NSMutableDictionary dictionaryWithObject:@"post" forKey:@"kind"];
+    NSString *code = TPPostCodeForLightbox(host);
+    if (code) ctx[@"code"] = code;
+    id item = [TPDownloader ivarValue:host name:@"postItem"];
+    NSString *a = TPAuthorFromMedia([TPDownloader safeValue:item key:@"carouselParent"])
+               ?: TPAuthorFromMedia([TPDownloader safeValue:item key:@"topLevelPost"]) ?: TPAuthorFromMedia(item);
+    if (!a && code.length) a = [TPAuthorInfo authorForPostCode:code];
+    if (a) ctx[@"author"] = a;
+    if ([TPPrefs boolForKey:TPKeyDebugToast])
+        [TPDownloader appendPendingReport:[NSString stringWithFormat:@"[history] lightbox code %@ · author %@\n",
+                                           code ?: @"-", a ?: @"-"]];
+    return ctx;
+}
+
 static NSArray<NSDictionary *> *TPLightboxPostPhotos(UIView *host) {
     NSMutableString *diag = [NSMutableString stringWithString:@"[lightbox all]\n"];
     NSArray *pages = TPLightboxPagesPhotos(host, diag);
@@ -1131,12 +1512,13 @@ static void TPDownloadLightboxImages(UIView *host, BOOL all) {
     if (all) {
         NSArray *fromModel = TPLightboxPostPhotos(host);
         if (fromModel.count > 1) {
+            NSDictionary *ctx = TPPostContextForLightbox(host);
             if ([TPPrefs boolForKey:TPKeyOriginalImage]) {
-                TPUpgradeToOriginals(TPPostCodeForLightbox(host), fromModel, ^(NSArray<NSDictionary *> *upgraded) {
-                    [TPDownloader downloadItems:upgraded];
+                TPUpgradeToOriginals(ctx[@"code"], fromModel, ^(NSArray<NSDictionary *> *upgraded) {
+                    [TPDownloader downloadItems:upgraded context:ctx];
                 });
             } else {
-                [TPDownloader downloadItems:fromModel];
+                [TPDownloader downloadItems:fromModel context:ctx];
             }
             return;
         }
@@ -1188,12 +1570,13 @@ static void TPDownloadLightboxImages(UIView *host, BOOL all) {
     if (!items.count && bestOfItem) [items addObject:@{ @"video": @NO, @"urls": @[bestOfItem], @"key": TPDedupeKey(bestOfItem) }];
     if (!items.count) { [TPHUD toast:TPL(@"No image found")]; return; }
 
+    NSDictionary *ctx = TPPostContextForLightbox(host);
     if ([TPPrefs boolForKey:TPKeyOriginalImage]) {
-        TPUpgradeToOriginals(TPPostCodeForLightbox(host), items, ^(NSArray<NSDictionary *> *upgraded) {
-            [TPDownloader downloadItems:upgraded];
+        TPUpgradeToOriginals(ctx[@"code"], items, ^(NSArray<NSDictionary *> *upgraded) {
+            [TPDownloader downloadItems:upgraded context:ctx];
         });
     } else {
-        [TPDownloader downloadItems:items];
+        [TPDownloader downloadItems:items context:ctx];
     }
 }
 
@@ -1224,7 +1607,7 @@ static void TPDownloadLightboxVideos(UIView *host, BOOL all) {
         if (d) [items addObject:d];
     }
     if (!items.count) { [TPHUD toast:TPL(@"No video found")]; return; }
-    [TPDownloader downloadItems:items];
+    [TPDownloader downloadItems:items context:TPPostContextForLightbox(host)];
 }
 
 // Lightbox download button: lives in the top bar next to Threads' "⋯" button (outside the image)
@@ -1456,6 +1839,7 @@ static void TPLBUpdateMenu(UIButton *b, UIView *host, BOOL isVideo) {
         if (isVideo) { if (hasVideo) [items addObject:video[1]]; if (hasPhoto) [items addObject:photo[1]]; }
         else         { if (hasPhoto) [items addObject:photo[1]]; if (hasVideo) [items addObject:video[1]]; }
     }
+    [items addObject:TPManagerMenuItem()];
     [TPUI setMenuItems:items forButton:b];
 }
 
@@ -1470,6 +1854,7 @@ static UIView *TPLBCommonAncestor(UIView *a, UIView *b, UIView *root) {
     }
     return root;
 }
+
 
 static void TPEnsureLightboxButton(UIView *host) {
     UIViewController *vc = TPLightboxController(host);
@@ -1509,7 +1894,7 @@ static void TPEnsureLightboxButton(UIView *host) {
             if (!h) return;
             if ([h isKindOfClass:objc_getClass("_TtC11BCNLightbox20BCNLightboxVideoCell")]) TPDownloadLightboxVideos(h, NO);
             else TPDownloadLightboxImages(h, NO);
-        } menuItems:@[one, all]];
+        } menuItems:@[one, all, TPManagerMenuItem()]];
         objc_setAssociatedObject(b, kTPLBMenusKey, @[@[one, all], @[oneV, allV]], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(vc, kTPLBBarBtnKey, b, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         b.alpha = 0;   // the follower fades it in once the top bar has settled
@@ -1570,111 +1955,7 @@ static float TPSpeedForIndex(NSInteger i) {
 
 static const void *kTPPlayerInitKey = &kTPPlayerInitKey;
 
-// Slide to Lock 2x. Threads' long-press calls setPlaybackSpeed:2 on press and :1 on release.
-// During a long-press 2x a button appears near the bottom of the video:
-//   not locked: "Slide here to lock 2x"  → slide onto it → locked; the release's :1 is ignored
-//   locked:     "Slide here to unlock"   → slide onto it → unlocked; the release goes through
-// The button only exists while the finger is down, so nothing is left on screen.
-typedef NS_ENUM(NSInteger, TPLockButtonMode) { TPLockModeOffer, TPLockModeLocked, TPLockModeOfferUnlock, TPLockModeUnlocked };
-
-static __weak id gTPFastPlayer;       // player currently at long-press 2x
 static BOOL gTPApplyingDefault;       // ThreadsPulse is applying the default speed itself
-static __weak id gTPLockedPlayer;     // player locked at 2x
-static UIButton *gTPLockButton;
-static TPLockButtonMode gTPLockMode;
-
-static UIView *TPVideoViewForPlayer(id player) {
-    UIView *v = ((TPWeakBox *)objc_getAssociatedObject(player, kTPPlayerViewKey)).object;
-    return v.window ? v : nil;
-}
-
-static void TPStyleLockButton(UIButton *b, TPLockButtonMode mode) {
-    BOOL done = mode == TPLockModeLocked || mode == TPLockModeUnlocked;
-    UIButtonConfiguration *c = [UIButtonConfiguration filledButtonConfiguration];
-    c.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
-    NSString *symbol = mode == TPLockModeOffer ? @"lock.open" : mode == TPLockModeLocked ? @"lock.fill"
-                     : mode == TPLockModeOfferUnlock ? @"lock" : @"lock.open.fill";
-    c.image = [UIImage systemImageNamed:symbol
-                      withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:13 weight:UIImageSymbolWeightSemibold]];
-    c.imagePadding = 6;
-    c.contentInsets = NSDirectionalEdgeInsetsMake(9, 14, 9, 16);
-    c.baseBackgroundColor = done ? [TPUI accent] : [UIColor colorWithWhite:0 alpha:0.55];
-    c.baseForegroundColor = UIColor.whiteColor;
-    NSString *title = mode == TPLockModeOffer ? @"Slide here to lock 2x" : mode == TPLockModeLocked ? @"2x locked"
-                    : mode == TPLockModeOfferUnlock ? @"Slide here to unlock" : @"Unlocked";
-    c.attributedTitle = [[NSAttributedString alloc] initWithString:TPL(title) attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold] }];
-    CGPoint center = b.center;
-    BOOL placed = b.superview != nil;
-    b.configuration = c;
-    [b sizeToFit];
-    if (placed) b.center = center;
-    gTPLockMode = mode;
-}
-
-static void TPRemoveLockButton(void) {
-    UIButton *b = gTPLockButton;
-    gTPLockButton = nil;
-    if (!b) return;
-    [UIView animateWithDuration:0.18 animations:^{ b.alpha = 0; } completion:^(BOOL f) { [b removeFromSuperview]; }];
-}
-
-// Where the lock button goes, in window coordinates. It shouldn't cover the picture: below the
-// video if there's room (clear of Threads' "Full screen" pill just under it), else above it, and
-// only inside the video, near the bottom, when the video fills the screen (e.g. portrait).
-static void TPShowLockButton(id player) {
-    if (gTPLockButton.superview) return;
-    UIWindow *win = TPKeyWindow();
-    if (!win) return;
-    UIView *video = TPVideoViewForPlayer(player);
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    b.userInteractionEnabled = NO;  // reacts to the long-press finger sliding over it, never to taps
-    TPStyleLockButton(b, gTPLockedPlayer == player ? TPLockModeOfferUnlock : TPLockModeOffer);
-    CGFloat h = CGRectGetHeight(b.bounds);
-
-    UIEdgeInsets safe = win.safeAreaInsets;
-    CGRect usable = UIEdgeInsetsInsetRect(win.bounds, UIEdgeInsetsMake(safe.top + 50, 0, safe.bottom + 90, 0));
-    CGRect v = video ? CGRectIntersection([video convertRect:video.bounds toView:nil], win.bounds) : CGRectNull;
-    if (CGRectIsNull(v) || CGRectIsEmpty(v)) v = usable;
-
-    CGFloat x = CGRectGetMidX(v), y;
-    CGFloat belowY = CGRectGetMaxY(v) + 56 + h / 2;   // 56 pt: past the "Full screen" pill
-    CGFloat aboveY = CGRectGetMinY(v) - 24 - h / 2;
-    if (belowY + h / 2 <= CGRectGetMaxY(usable)) y = belowY;
-    else if (aboveY - h / 2 >= CGRectGetMinY(usable)) y = aboveY;
-    else y = MIN(CGRectGetMaxY(v), CGRectGetMaxY(usable)) - h / 2 - 24;
-    b.center = CGPointMake(x, y);
-
-    b.alpha = 0;
-    b.transform = CGAffineTransformMakeScale(0.85, 0.85);
-    [win addSubview:b];
-    gTPLockButton = b;
-    [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.5 options:0
-                     animations:^{ b.alpha = 1; b.transform = CGAffineTransformIdentity; } completion:nil];
-}
-
-// The finger reached the button: lock, or unlock if this player was locked.
-static void TPLockButtonReached(id player) {
-    if (!player || !gTPLockButton) return;
-    if (gTPLockMode == TPLockModeOffer) {
-        gTPLockedPlayer = player;
-        TPStyleLockButton(gTPLockButton, TPLockModeLocked);
-    } else if (gTPLockMode == TPLockModeOfferUnlock) {
-        gTPLockedPlayer = nil;
-        TPStyleLockButton(gTPLockButton, TPLockModeUnlocked);
-    } else {
-        return;
-    }
-    UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-    [g impactOccurred];
-}
-
-// Finger over the lock button (with some slack so it's easy to hit).
-static BOOL TPTouchOnLockButton(UITouch *t) {
-    UIButton *b = gTPLockButton;
-    if (!b.window) return NO;
-    return CGRectContainsPoint(CGRectInset(b.bounds, -18, -18), [t locationInView:b]);
-}
 
 // Disable Autoplay.
 // Simply refusing to play leaves the cell without its sound icon and playback UI. Instead,
@@ -1773,36 +2054,16 @@ static void TPPlayVideoAtTouch(UITouch *t) {
 }
 
 - (void)stopWithReason:(long long)reason callsiteContext:(id)context {
-    if (gTPLockedPlayer == self) gTPLockedPlayer = nil;
-    if (gTPFastPlayer == self) { gTPFastPlayer = nil; TPRemoveLockButton(); }
     objc_setAssociatedObject(self, kTPUserStartedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (objc_getAssociatedObject(self, kTPHeldKey)) TPSetHeld(self, NO);
     %orig;
 }
 
+// Long-press 2x (and locking it) is Threads' own. Its release asks for 1x; with a default speed
+// set, go back to that speed instead.
 - (void)setPlaybackSpeed:(float)speed {
     float def = TPSpeedForIndex([TPPrefs integerForKey:TPKeyPlaySpeed]);
-    // Our own default-speed call isn't a long-press, and with a 2x default there's nothing to lock:
-    // the video already plays at 2x and the long-press release returns to 2x.
-    if (gTPApplyingDefault || def >= 1.9f) {
-        if (gTPFastPlayer == self) { gTPFastPlayer = nil; TPRemoveLockButton(); }
-        if (def != 1.0f && speed == 1.0f) speed = def;
-        %orig(speed);
-        return;
-    }
-    if (speed >= 1.9f) {
-        // Long-press 2x started: offer the lock button (unless this player is already locked).
-        gTPFastPlayer = self;
-        if ([TPPrefs boolForKey:TPKeySwipeLockSpeed]) {
-            id me = self;
-            dispatch_async(dispatch_get_main_queue(), ^{ if (gTPFastPlayer == me) TPShowLockButton(me); });
-        }
-    } else {
-        // Any drop below 2x ends the long-press (Threads 456 can restore a rate other than 1.0).
-        if (gTPFastPlayer == self) { gTPFastPlayer = nil; TPRemoveLockButton(); }
-        if (gTPLockedPlayer == self) return;  // locked: ignore the long-press release
-    }
-    if (def != 1.0f && speed == 1.0f) speed = def;
+    if (!gTPApplyingDefault && def != 1.0f && speed == 1.0f) speed = def;
     %orig(speed);
 }
 
@@ -1827,42 +2088,113 @@ static BOOL TPFNFShouldSkipPlay(id fnf) {
 }
 %end
 
+// Disable Music Autoplay: music attached to posts plays through IGAudioPlayer or
+// IGStatelessAudioPlayer. A start is let through only right after a tap on the music (or once the
+// user has started that player); scrolling a post into view no longer starts it. Tapping the
+// speaker icon turns the sound on through setAudioEnabled:, so that also starts a held player.
+static const void *kTPMusicUserKey = &kTPMusicUserKey;
+static const void *kTPMusicHeldKey = &kTPMusicHeldKey;
+static CFAbsoluteTime gTPLastMusicTapAt = 0;
+
+// Post music views are BCNFeedMusic… (the speaker icon sits inside them); audio posts are
+// BCNFeedAudioAttachment…. Generic "Audio"/"Mute" names would also match a video's speaker button.
+static BOOL TPIsMusicClassName(NSString *n) {
+    return [n containsString:@"Music"] || [n containsString:@"AudioAttachment"];
+}
+
+// A tap on a post's music row or card, or its speaker icon.
+static BOOL TPTouchIsOnMusic(UITouch *t) {
+    int depth = 0;
+    for (UIView *v = t.view; v && depth < 16; v = v.superview, depth++) {
+        if (TPIsMusicClassName(NSStringFromClass(v.class))) return YES;
+        if ([v isKindOfClass:[UICollectionViewCell class]]) break;
+    }
+    return NO;
+}
+
+static BOOL TPMusicMayStart(id player, long long reason) {
+    if (![TPPrefs boolForKey:TPKeyNoMusicAutoplay] || objc_getAssociatedObject(player, kTPMusicUserKey)) return YES;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    BOOL tapped = now - gTPLastMusicTapAt < 1.5;
+    if (!tapped) {
+        // Keep the start reason: a held player is started later with the same (valid) reason.
+        objc_setAssociatedObject(player, kTPMusicHeldKey, @(reason), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        TPDebug([NSString stringWithFormat:@"%@ (%lld)", TPL(@"Music autoplay blocked"), reason]);
+        return NO;
+    }
+    objc_setAssociatedObject(player, kTPMusicUserKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(player, kTPMusicHeldKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return YES;
+}
+
+static BOOL TPMusicAudioEnabled(id player) {
+    return [player respondsToSelector:@selector(isAudioEnabled)] && ((BOOL (*)(id, SEL))objc_msgSend)(player, @selector(isAudioEnabled));
+}
+
+// The speaker icon was switched from off to on right after a tap on the music: start a held player, with the
+// reason its own start had (the sound call's reason is a different kind of value).
+static void TPMusicSoundTurnedOn(id player, BOOL enabled, BOOL wasEnabled) {
+    if (!enabled || wasEnabled || ![TPPrefs boolForKey:TPKeyNoMusicAutoplay]) return;
+    NSNumber *held = objc_getAssociatedObject(player, kTPMusicHeldKey);
+    if (![held isKindOfClass:[NSNumber class]] || CFAbsoluteTimeGetCurrent() - gTPLastMusicTapAt > 1.5) return;
+    objc_setAssociatedObject(player, kTPMusicUserKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(player, kTPMusicHeldKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    TPDebug(TPL(@"Tap: playing music"));
+    ((void (*)(id, SEL, long long))objc_msgSend)(player, @selector(startPlaybackWith:), held.longLongValue);
+}
+
+%hook _TtC13IGAudioPlayer13IGAudioPlayer
+- (void)startPlaybackWith:(long long)reason {
+    if (!TPMusicMayStart(self, reason)) return;
+    %orig;
+}
+- (void)stopPlaybackWith:(long long)reason {
+    objc_setAssociatedObject(self, kTPMusicUserKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, kTPMusicHeldKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    %orig;
+}
+- (void)setAudioEnabled:(BOOL)enabled with:(long long)reason {
+    BOOL was = TPMusicAudioEnabled(self);
+    %orig;
+    TPMusicSoundTurnedOn(self, enabled, was);
+}
+%end
+
+%hook _TtC13IGAudioPlayer22IGStatelessAudioPlayer
+- (void)startPlaybackWith:(long long)reason {
+    if (!TPMusicMayStart(self, reason)) return;
+    %orig;
+}
+- (void)stopPlaybackWith:(long long)reason {
+    objc_setAssociatedObject(self, kTPMusicUserKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, kTPMusicHeldKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    %orig;
+}
+- (void)setAudioEnabled:(BOOL)enabled with:(long long)reason {
+    BOOL was = TPMusicAudioEnabled(self);
+    %orig;
+    TPMusicSoundTurnedOn(self, enabled, was);
+}
+%end
+
 %hook UIWindow
 - (void)sendEvent:(UIEvent *)event {
-    BOOL noAuto = [TPPrefs boolForKey:TPKeyNoAutoplay];
-    BOOL swipeLock = [TPPrefs boolForKey:TPKeySwipeLockSpeed];
-    if (event.type == UIEventTypeTouches && (noAuto || swipeLock)) {
+    BOOL noAuto = [TPPrefs boolForKey:TPKeyNoAutoplay] || [TPPrefs boolForKey:TPKeyNoMusicAutoplay];
+    if (event.type == UIEventTypeTouches && noAuto) {
         for (UITouch *t in event.allTouches) {
             if (t.phase == UITouchPhaseBegan) {
                 CGPoint p = [t locationInView:nil];
                 objc_setAssociatedObject(t, kTPTouchStartKey,
                     @[@(p.x), @(p.y), @(CFAbsoluteTimeGetCurrent())], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            } else if (t.phase == UITouchPhaseMoved) {
-                // During a long-press 2x, sliding onto the lock button locks the speed.
-                id fast = gTPFastPlayer;
-                if (!swipeLock || !fast) continue;
-                if (TPTouchOnLockButton(t)) TPLockButtonReached(fast);
-            } else if (t.phase == UITouchPhaseEnded || t.phase == UITouchPhaseCancelled) {
-                // The lock button only belongs to a finger that's down. Once every finger is up,
-                // take it away even if Threads never reported the end of its 2x.
-                if (gTPLockButton) {
-                    BOOL anyDown = NO;
-                    for (UITouch *o in event.allTouches)
-                        if (o.phase != UITouchPhaseEnded && o.phase != UITouchPhaseCancelled) anyDown = YES;
-                    UIButton *b = gTPLockButton;
-                    if (!anyDown) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                                                 dispatch_get_main_queue(), ^{ if (gTPLockButton == b) TPRemoveLockButton(); });
-                }
-                if (t.phase == UITouchPhaseCancelled) continue;
+            } else if (t.phase == UITouchPhaseEnded) {
                 NSArray *s = objc_getAssociatedObject(t, kTPTouchStartKey);
                 if (s.count == 3) {
                     CGPoint p = [t locationInView:nil];
                     CGFloat dx = p.x - [s[0] doubleValue], dy = p.y - [s[1] doubleValue];
                     if (dx * dx + dy * dy < 15 * 15 && CFAbsoluteTimeGetCurrent() - [s[2] doubleValue] < 0.6) {
-                        if (noAuto) {
-                            gTPLastTapAt = CFAbsoluteTimeGetCurrent();
-                            TPPlayVideoAtTouch(t);
-                        }
+                        gTPLastTapAt = CFAbsoluteTimeGetCurrent();
+                        if ([TPPrefs boolForKey:TPKeyNoAutoplay]) TPPlayVideoAtTouch(t);
+                        if ([TPPrefs boolForKey:TPKeyNoMusicAutoplay] && TPTouchIsOnMusic(t)) gTPLastMusicTapAt = gTPLastTapAt;
                     }
                 }
             }
@@ -2049,12 +2381,14 @@ static void TPDownloadAvatarFromPictureView(UIView *pic) {
     [TPDownloader appendPendingReport:[NSString stringWithFormat:@"[avatar] @%@ · hd %@ · shown %@\n",
                                        username ?: @"?", hd ? @"yes" : @"no", shown ? @"yes" : @"no"]];
 
+    NSMutableDictionary *ctx = [NSMutableDictionary dictionaryWithObject:@"avatar" forKey:@"kind"];
+    if ([username isKindOfClass:[NSString class]] && [username length]) ctx[@"author"] = username;
     if ([TPPrefs boolForKey:TPKeyOriginalAvatar] && [username isKindOfClass:[NSString class]] && [username length] && item[@"key"]) {
         NSURL *page = [NSURL URLWithString:[@"https://www.threads.com/@" stringByAppendingString:username]];
         TPUpgradeFromPage(page, YES, [@"@" stringByAppendingString:username], TPL(@"Getting original photo…"), @[item],
-                          ^(NSArray<NSDictionary *> *upgraded) { [TPDownloader downloadItems:upgraded]; });
+                          ^(NSArray<NSDictionary *> *upgraded) { [TPDownloader downloadItems:upgraded context:ctx]; });
     } else {
-        [TPDownloader downloadItems:@[item]];
+        [TPDownloader downloadItems:@[item] context:ctx];
     }
 }
 
@@ -2069,7 +2403,7 @@ static void TPEnsureAvatarButton(UIViewController *vc) {
         __weak UIViewController *wvc = vc;
         b = [TPUI circleButtonWithSymbol:@"arrow.down.to.line" diameter:d onTap:^{
             if (wvc) TPDownloadAvatar(wvc);
-        } menuItems:nil];
+        } menuItems:@[TPManagerMenuItem()]];
         b.accessibilityLabel = TPL(@"Save Profile Picture");
         [host addSubview:b];
         objc_setAssociatedObject(vc, kTPAvatarBtnKey, b, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -2206,7 +2540,92 @@ static void TPEnsureProfilePress(UIView *header) {
     TPAddProfilePress(TPFindView(header, objc_getClass("IGProfileBioView"), 8), YES);
 }
 
+// Profile cover photo (BCNProfileCoverPhotoView → coverPhotoView: BCNCoverPhotoView → imageView:
+// IGImageView). Long-press it to save the photo. Only active while a cover photo is shown, so the
+// "add cover photo" button on your own profile keeps working.
+static const void *kTPCoverPressKey = &kTPCoverPressKey;
+
+static UIView *TPCoverImageView(UIView *coverHost) {
+    UIView *cover = [TPDownloader ivarValue:coverHost name:@"coverPhotoView"];
+    id iv = [TPDownloader ivarValue:cover name:@"imageView"];
+    return [iv isKindOfClass:[UIView class]] ? iv : nil;
+}
+
+static NSString *TPUsernameNearCover(UIView *coverHost) {
+    for (UIResponder *r = coverHost; r; r = r.nextResponder) {
+        if (![r isKindOfClass:[UIViewController class]]) continue;
+        UIView *header = gTPProfileHeaderClass ? TPFindView(((UIViewController *)r).view, gTPProfileHeaderClass, 14) : nil;
+        NSString *u = header ? TPProfileUsername(header) : nil;
+        if (u.length) return u;
+    }
+    return nil;
+}
+
+static void TPDownloadCoverPhoto(UIView *coverHost) {
+    UIView *iv = TPCoverImageView(coverHost);
+    NSURL *url = TPURLFromImageSpecifier([TPDownloader safeValue:iv key:@"imageSpecifier"]);
+    id img = [TPDownloader safeValue:iv key:@"image"];
+    UIImage *shown = [img isKindOfClass:[UIImage class]] ? img : nil;
+    if (!url && !shown) { [TPHUD toast:TPL(@"No image found")]; return; }
+    NSMutableDictionary *item = [NSMutableDictionary dictionary];
+    item[@"video"] = @NO;
+    item[@"urls"] = url ? @[url] : @[];
+    if (url) item[@"key"] = TPDedupeKey(url);
+    if (shown) item[@"image"] = shown;
+    NSMutableDictionary *ctx = [NSMutableDictionary dictionaryWithObject:@"cover" forKey:@"kind"];
+    NSString *u = TPUsernameNearCover(coverHost);
+    if (u.length) ctx[@"author"] = u;
+    [TPDownloader appendPendingReport:[NSString stringWithFormat:@"[cover] @%@ · url %@ · shown %@\n",
+                                       u ?: @"?", url ? @"yes" : @"no", shown ? @"yes" : @"no"]];
+    [TPDownloader downloadItems:@[item] context:ctx];
+}
+
+@interface TPCoverPressHandler : NSObject <UIGestureRecognizerDelegate>
+@end
+@implementation TPCoverPressHandler
++ (instancetype)shared {
+    static TPCoverPressHandler *h;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ h = [self new]; });
+    return h;
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    if (![TPPrefs boolForKey:TPKeyShowDownloadBtn]) return NO;
+    UIView *iv = TPCoverImageView(g.view);
+    id img = [TPDownloader safeValue:iv key:@"image"];
+    return [img isKindOfClass:[UIImage class]] && !iv.hidden && iv.alpha > 0.01;
+}
+- (void)pressed:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    UIView *src = g.view;
+    [TPUI hapticLight];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak UIView *wsrc = src;
+    TPAddSheetAction(sheet, TPL(@"Save Cover Photo"), @"arrow.down.to.line", ^{ if (wsrc) TPDownloadCoverPhoto(wsrc); });
+    [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+    CGPoint pt = [g locationInView:src];
+    sheet.popoverPresentationController.sourceView = src;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(pt.x, pt.y, 1, 1);
+    [TPTopViewController() presentViewController:sheet animated:YES completion:nil];
+}
+@end
+
 %group Avatar
+
+%hook _TtC10BCNProfile24BCNProfileCoverPhotoView
+- (void)willMoveToWindow:(UIWindow *)window {
+    %orig;
+    UIView *v = (UIView *)self;
+    if (!window || objc_getAssociatedObject(v, kTPCoverPressKey)) return;
+    UILongPressGestureRecognizer *g = [[UILongPressGestureRecognizer alloc] initWithTarget:[TPCoverPressHandler shared]
+                                                                                    action:@selector(pressed:)];
+    g.minimumPressDuration = 0.45;
+    g.delegate = [TPCoverPressHandler shared];
+    [v addGestureRecognizer:g];
+    objc_setAssociatedObject(v, kTPCoverPressKey, g, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+%end
 
 %hook _TtC17BCNProfilePicture41BCNProfilePictureFullscreenViewController
 - (void)viewDidLayoutSubviews {
@@ -2516,6 +2935,45 @@ static void TPScheduleClipboardCheckAfterSwitch(void) {
 %end
 %end
 
+// Mute Refresh Sound. Threads plays the refresh sound (BCNRefreshSounds.bundle) as a system
+// sound. Its own on/off switch can be lost on re-signed installs, so the sound IDs created from
+// that bundle are noted and not played while this is on.
+static OSStatus (*orig_AudioServicesCreateSystemSoundID)(CFURLRef, SystemSoundID *);
+static void (*orig_AudioServicesPlaySystemSound)(SystemSoundID);
+static void (*orig_AudioServicesPlaySystemSoundWithCompletion)(SystemSoundID, void (^)(void));
+static NSMutableSet<NSNumber *> *gTPRefreshSoundIDs;
+
+static BOOL TPIsMutedRefreshSound(SystemSoundID sid) {
+    if (![TPPrefs boolForKey:TPKeyMuteRefreshSound]) return NO;
+    @synchronized (gTPRefreshSoundIDs) { return [gTPRefreshSoundIDs containsObject:@(sid)]; }
+}
+static OSStatus tp_AudioServicesCreateSystemSoundID(CFURLRef url, SystemSoundID *outID) {
+    OSStatus st = orig_AudioServicesCreateSystemSoundID(url, outID);
+    NSString *path = [(__bridge NSURL *)url path];
+    if (st == noErr && outID && [path rangeOfString:@"RefreshSound"].location != NSNotFound) {
+        @synchronized (gTPRefreshSoundIDs) { [gTPRefreshSoundIDs addObject:@(*outID)]; }
+    }
+    return st;
+}
+static void tp_AudioServicesPlaySystemSound(SystemSoundID sid) {
+    if (TPIsMutedRefreshSound(sid)) return;
+    orig_AudioServicesPlaySystemSound(sid);
+}
+static void tp_AudioServicesPlaySystemSoundWithCompletion(SystemSoundID sid, void (^done)(void)) {
+    if (TPIsMutedRefreshSound(sid)) { if (done) dispatch_async(dispatch_get_main_queue(), done); return; }
+    orig_AudioServicesPlaySystemSoundWithCompletion(sid, done);
+}
+static void TPInstallMuteRefreshSound(void) {
+    gTPRefreshSoundIDs = [NSMutableSet set];
+    orig_AudioServicesCreateSystemSoundID = dlsym(RTLD_DEFAULT, "AudioServicesCreateSystemSoundID");
+    orig_AudioServicesPlaySystemSound = dlsym(RTLD_DEFAULT, "AudioServicesPlaySystemSound");
+    orig_AudioServicesPlaySystemSoundWithCompletion = dlsym(RTLD_DEFAULT, "AudioServicesPlaySystemSoundWithCompletion");
+    if (!orig_AudioServicesCreateSystemSoundID || !orig_AudioServicesPlaySystemSound || !orig_AudioServicesPlaySystemSoundWithCompletion) return;
+    TPRebindSymbols((const char *[]){ "AudioServicesCreateSystemSoundID", "AudioServicesPlaySystemSound", "AudioServicesPlaySystemSoundWithCompletion" },
+                    (void *[]){ (void *)tp_AudioServicesCreateSystemSoundID, (void *)tp_AudioServicesPlaySystemSound,
+                                (void *)tp_AudioServicesPlaySystemSoundWithCompletion }, 3);
+}
+
 %group AccountSwitch
 
 %hook IGAccountSwitcher
@@ -2798,24 +3256,36 @@ static BOOL TPTabSelectSuppressed(void) { return CFAbsoluteTimeGetCurrent() < gT
 
 %end
 
-// The follow-suggestion sheet is BCNUserRecommendationsViewController. Only the presented
-// (sheet) form is blocked; the same controller pushed from a profile still opens.
+// The follow-suggestion sheet is BCNUserRecommendationsViewController, and the "Follow your
+// Instagram connections" interstitial is BCNRecommendedAccountsViewController. Only the presented
+// (sheet) form is blocked; the same controllers pushed from a profile or settings still open.
 static Class gTPUserRecsClass;
+static Class gTPRecAccountsClass;
 
-static BOOL TPTreeContainsUserRecs(UIViewController *vc, int depth) {
-    if (!vc || !gTPUserRecsClass || depth > 4) return NO;
-    if ([vc isKindOfClass:gTPUserRecsClass]) return YES;
+static BOOL TPTreeContainsClass(UIViewController *vc, Class cls, int depth) {
+    if (!vc || !cls || depth > 4) return NO;
+    if ([vc isKindOfClass:cls]) return YES;
     if ([vc isKindOfClass:[UINavigationController class]])
-        for (UIViewController *c in ((UINavigationController *)vc).viewControllers) if (TPTreeContainsUserRecs(c, depth + 1)) return YES;
-    for (UIViewController *c in vc.childViewControllers) if (TPTreeContainsUserRecs(c, depth + 1)) return YES;
+        for (UIViewController *c in ((UINavigationController *)vc).viewControllers) if (TPTreeContainsClass(c, cls, depth + 1)) return YES;
+    for (UIViewController *c in vc.childViewControllers) if (TPTreeContainsClass(c, cls, depth + 1)) return YES;
     return NO;
+}
+
+// Dismisses a blocked controller that was presented in a way the present hook did not see.
+static void TPDismissIfPresented(UIViewController *me) {
+    UIViewController *top = me;
+    while (top.parentViewController) top = top.parentViewController;
+    if (!top.presentingViewController) return;
+    TPDebug(TPL(@"Follow suggestions hidden"));
+    dispatch_async(dispatch_get_main_queue(), ^{ [top dismissViewControllerAnimated:NO completion:nil]; });
 }
 
 %group HideFollowSuggest
 
 %hook UIViewController
 - (void)presentViewController:(UIViewController *)vc animated:(BOOL)animated completion:(void (^)(void))completion {
-    if ([TPPrefs boolForKey:TPKeyHideFollowSuggest] && TPTreeContainsUserRecs(vc, 0)) {
+    if (([TPPrefs boolForKey:TPKeyHideFollowSuggest] && TPTreeContainsClass(vc, gTPUserRecsClass, 0))
+        || ([TPPrefs boolForKey:TPKeyHideIGConnections] && TPTreeContainsClass(vc, gTPRecAccountsClass, 0))) {
         TPDebug(TPL(@"Follow suggestions hidden"));
         return;
     }
@@ -2826,13 +3296,14 @@ static BOOL TPTreeContainsUserRecs(UIViewController *vc, int depth) {
 %hook _TtC22BCNUserRecommendations36BCNUserRecommendationsViewController
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
-    if (![TPPrefs boolForKey:TPKeyHideFollowSuggest]) return;
-    UIViewController *me = (UIViewController *)self;
-    UIViewController *top = me;
-    while (top.parentViewController) top = top.parentViewController;
-    if (!top.presentingViewController) return;
-    TPDebug(TPL(@"Follow suggestions hidden"));
-    dispatch_async(dispatch_get_main_queue(), ^{ [top dismissViewControllerAnimated:NO completion:nil]; });
+    if ([TPPrefs boolForKey:TPKeyHideFollowSuggest]) TPDismissIfPresented((UIViewController *)self);
+}
+%end
+
+%hook _TtC22BCNRecommendedAccounts36BCNRecommendedAccountsViewController
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    if ([TPPrefs boolForKey:TPKeyHideIGConnections]) TPDismissIfPresented((UIViewController *)self);
 }
 %end
 
@@ -4064,12 +4535,370 @@ static BOOL TPHeaderCellIsExtended(UICollectionViewCell *cell) {
 }
 %end
 
+static const void *kTPFilteredSectionKey = &kTPFilteredSectionKey;
+static NSMutableDictionary<NSString *, NSHashTable *> *gTPPendingNewAcctSections = nil;
+
+static NSArray<NSString *> *TPMutedKeywordsList(void) {
+    NSArray<NSString *> *out = [TPPrefs mutedRules];
+    return out.count ? out : nil;
+}
+
+static void TPRecordFilterHit(NSString *rule) {
+    if (!rule.length) return;
+    NSUserDefaults *ud = [TPPrefs defaults];
+    NSMutableDictionary *hits = [[ud dictionaryForKey:@"tp_filter_hit_counts"] mutableCopy] ?: [NSMutableDictionary dictionary];
+    hits[rule] = @([hits[rule] integerValue] + 1);
+    [ud setObject:hits forKey:@"tp_filter_hit_counts"];
+}
+
+// The keyword or /regex/ rule found in the text, or nil. (@username rules are checked on headers.)
+static NSString *TPStringMatchesKeywords(NSString *text, NSArray<NSString *> *keywords) {
+    if (!text.length || !keywords.count) return nil;
+    for (NSString *kw in keywords) {
+        if ([kw hasPrefix:@"@"] && kw.length > 1) continue;
+        if ([kw hasPrefix:@"/"] && [kw hasSuffix:@"/"] && kw.length > 2) {
+            // Compiled once per rule: this runs for every cell as the feed scrolls.
+            static NSCache<NSString *, id> *cache;
+            static dispatch_once_t once;
+            dispatch_once(&once, ^{ cache = [NSCache new]; });
+            id re = [cache objectForKey:kw];
+            if (!re) {
+                NSString *pat = [kw substringWithRange:NSMakeRange(1, kw.length - 2)];
+                re = [NSRegularExpression regularExpressionWithPattern:pat options:NSRegularExpressionCaseInsensitive error:nil] ?: NSNull.null;
+                [cache setObject:re forKey:kw];
+            }
+            if (re == NSNull.null) continue;
+            if ([(NSRegularExpression *)re firstMatchInString:text options:0 range:NSMakeRange(0, text.length)]) return kw;
+            continue;
+        }
+        if ([text rangeOfString:kw options:NSCaseInsensitiveSearch].location != NSNotFound) return kw;
+    }
+    return nil;
+}
+
+static NSString *TPAuthorMatchesMutedRules(NSString *author, NSArray<NSString *> *keywords) {
+    if (!author.length || !keywords.count) return nil;
+    for (NSString *kw in keywords) {
+        if ([kw hasPrefix:@"@"] && kw.length > 1) {
+            NSString *handle = [kw substringFromIndex:1];
+            if ([author caseInsensitiveCompare:handle] == NSOrderedSame) return kw;
+        }
+    }
+    return nil;
+}
+
+static NSString *TPCellModelContainsKeyword(UIView *cell, NSArray<NSString *> *keywords) {
+    if (!cell || !keywords.count) return nil;
+    for (NSString *ivarName in @[@"cellMediaFragment", @"mediaFragment", @"parentMediaFragment", @"postItem", @"viewModel"]) {
+        id m = [TPDownloader ivarValue:cell name:ivarName];
+        if (!m) continue;
+        id cap = [TPDownloader safeValue:m key:@"caption"];
+        NSString *capText = [cap isKindOfClass:[NSString class]] ? cap : [TPDownloader safeValue:cap key:@"text"];
+        NSString *hit = [capText isKindOfClass:[NSString class]] ? TPStringMatchesKeywords(capText, keywords) : nil;
+        if (hit) return hit;
+        for (NSString *tk in @[@"captionText", @"text", @"bodyText", @"accessibilityLabel"]) {
+            id v = [TPDownloader safeValue:m key:tk];
+            hit = [v isKindOfClass:[NSString class]] ? TPStringMatchesKeywords(v, keywords) : nil;
+            if (hit) return hit;
+        }
+    }
+    return nil;
+}
+
+static NSString *TPViewContainsKeyword(UIView *v, NSArray<NSString *> *keywords, int depth) {
+    if (!v || depth > 7 || v.hidden) return nil;
+    NSString *text = nil;
+    if ([v isKindOfClass:[UILabel class]]) {
+        text = [(UILabel *)v text];
+    } else if ([v isKindOfClass:[UITextView class]]) {
+        text = [(UITextView *)v text];
+    } else if ([v respondsToSelector:@selector(styledString)]) {
+        id styled = nil;
+        @try { styled = [v valueForKey:@"styledString"]; } @catch (__unused id e) {}
+        id as = [styled respondsToSelector:@selector(attributedString)] ? [styled valueForKey:@"attributedString"] : nil;
+        if ([as isKindOfClass:[NSAttributedString class]]) text = [(NSAttributedString *)as string];
+    } else if ([v respondsToSelector:@selector(attributedText)]) {
+        id at = nil;
+        @try { at = [v valueForKey:@"attributedText"]; } @catch (__unused id e) {}
+        if ([at isKindOfClass:[NSAttributedString class]]) text = [(NSAttributedString *)at string];
+    }
+    NSString *hit = TPStringMatchesKeywords(text, keywords);
+    if (hit) return hit;
+    for (UIView *s in v.subviews) {
+        hit = TPViewContainsKeyword(s, keywords, depth + 1);
+        if (hit) return hit;
+    }
+    return nil;
+}
+
+static BOOL TPIsThreadDetailVCClass(Class cls) {
+    if (!cls) return NO;
+    NSString *name = NSStringFromClass(cls).lowercaseString;
+    if ([name containsString:@"direct"] || [name containsString:@"message"] ||
+        [name containsString:@"setting"] || [name containsString:@"profile"] ||
+        [name containsString:@"search"] || [name containsString:@"activity"] ||
+        [name containsString:@"notif"] || [name containsString:@"sharesheet"]) return NO;
+    return [name containsString:@"bcnpermalink"] ||
+           [name containsString:@"permalinkviewcontroller"] ||
+           [name containsString:@"threaddetailviewcontroller"] ||
+           [name containsString:@"postdetailviewcontroller"];
+}
+
+static BOOL TPCollectionViewIsThreadDetail(UICollectionView *cv) {
+    for (UIResponder *r = cv; r; r = r.nextResponder) {
+        if ([r isKindOfClass:[UIViewController class]]) {
+            return TPIsThreadDetailVCClass(r.class);
+        }
+    }
+    return NO;
+}
+
+static void TPInvalidateSectionController(id sc) {
+    if (!sc) return;
+    __weak id weakSC = sc;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        id s = weakSC;
+        id ctx = [s respondsToSelector:@selector(collectionContext)] ? [s performSelector:@selector(collectionContext)] : nil;
+        SEL inv = NSSelectorFromString(@"invalidateLayoutForSectionController:completion:");
+        if (ctx && [ctx respondsToSelector:inv])
+            ((void (*)(id, SEL, id, id))objc_msgSend)(ctx, inv, s, nil);
+    });
+}
+
+// A filtered post isn't removed without a trace: its first row becomes a thin "1 post hidden ·
+// reason · Show" line, and the rest of its rows collapse. Tapping Show brings the post back.
+static const void *kTPFilterReasonKey = &kTPFilterReasonKey;
+static const void *kTPFilterRuleKey = &kTPFilterRuleKey;   // the muted rule that hid a section, if one did
+static const void *kTPThreadFirstPostKey = &kTPThreadFirstPostKey;   // on a thread page's collection view
+static const void *kTPRevealedKey = &kTPRevealedKey;
+static const void *kTPHiddenLineKey = &kTPHiddenLineKey;
+static const void *kTPCellClipsKey = &kTPCellClipsKey;
+static const void *kTPCellCollapsedKey = &kTPCellCollapsedKey;   // TPWeakBox -> section controller
+static const CGFloat kTPHiddenLineH = 36;
+
+static BOOL TPSectionFiltered(id sc) {
+    return sc && [objc_getAssociatedObject(sc, kTPFilteredSectionKey) boolValue] && ![objc_getAssociatedObject(sc, kTPRevealedKey) boolValue];
+}
+
+static void TPStyleFilteredCell(UICollectionViewCell *cell, NSInteger item, id sc);
+static void TPRestyleSection(id sc);
+
+@interface TPHiddenLine : UIControl <UIContextMenuInteractionDelegate>
+@property (nonatomic, weak) id section;
+@property (nonatomic, strong) UILabel *label, *show;
+@end
+@implementation TPHiddenLine
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _label = [UILabel new];
+        _label.font = [UIFont systemFontOfSize:13];
+        _label.textColor = UIColor.secondaryLabelColor;
+        _show = [UILabel new];
+        _show.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        _show.textColor = [TPUI accent];
+        _show.text = TPL(@"Show");
+        _show.textAlignment = NSTextAlignmentRight;
+        UIView *line = [UIView new];
+        line.backgroundColor = UIColor.separatorColor;
+        line.tag = 1;
+        for (UIView *v in @[_label, _show, line]) { v.userInteractionEnabled = NO; [self addSubview:v]; }
+        [self addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
+        // Long-press: show it, or fix the rule that hid it right here.
+        [self addInteraction:[[UIContextMenuInteraction alloc] initWithDelegate:self]];
+    }
+    return self;
+}
+
+- (UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction
+                        configurationForMenuAtLocation:(CGPoint)location {
+    __weak typeof(self) weak = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray *suggested) {
+        TPHiddenLine *s = weak;
+        NSString *rule = s.section ? objc_getAssociatedObject(s.section, kTPFilterRuleKey) : nil;
+        NSMutableArray *acts = [NSMutableArray array];
+        [acts addObject:[UIAction actionWithTitle:TPL(@"Show This Post") image:[UIImage systemImageNamed:@"eye"] identifier:nil
+                                          handler:^(UIAction *a) { [weak tapped]; }]];
+        if (rule.length) {
+            [acts addObject:[UIAction actionWithTitle:TPL(@"Mute for 24 Hours Only") image:[UIImage systemImageNamed:@"clock"] identifier:nil
+                                              handler:^(UIAction *a) {
+                [TPPrefs setExpiry:[NSDate dateWithTimeIntervalSinceNow:24 * 3600] forMutedRule:rule];
+                [TPHUD toast:[NSString stringWithFormat:TPL(@"%@ is now muted for 24 hours"), rule]];
+            }]];
+        }
+        [acts addObject:[UIAction actionWithTitle:TPL(@"Manage Muted Rules") image:[UIImage systemImageNamed:@"list.bullet"] identifier:nil
+                                          handler:^(UIAction *a) { [TPSettingsViewController presentMutedRules]; }]];
+        if (rule.length) {
+            UIAction *del = [UIAction actionWithTitle:TPL(@"Delete This Rule") image:[UIImage systemImageNamed:@"trash"] identifier:nil
+                                              handler:^(UIAction *a) {
+                NSMutableArray *rules = [[TPPrefs mutedRules] mutableCopy];
+                [rules removeObject:rule];
+                [TPPrefs setMutedRules:rules];
+                [weak tapped];   // this post comes back now; others hidden by it on the next refresh
+                [TPHUD toast:TPL(@"Rule deleted. Other posts it hid come back when the feed refreshes.")];
+            }];
+            del.attributes = UIMenuElementAttributesDestructive;
+            [acts addObject:del];
+        }
+        return [UIMenu menuWithTitle:rule.length ? rule : @"" children:acts];
+    }];
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGRect b = self.bounds;
+    CGFloat showW = [_show sizeThatFits:CGSizeMake(120, 20)].width;
+    _show.frame = CGRectMake(b.size.width - 16 - showW, 0, showW, kTPHiddenLineH);
+    _label.frame = CGRectMake(16, 0, CGRectGetMinX(_show.frame) - 24, kTPHiddenLineH);
+    [self viewWithTag:1].frame = CGRectMake(0, kTPHiddenLineH - 0.5, b.size.width, 0.5);
+}
+- (void)tapped {
+    id sc = self.section;
+    if (!sc) return;
+    [TPUI hapticLight];
+    objc_setAssociatedObject(sc, kTPRevealedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    TPRestyleSection(sc);
+    TPInvalidateSectionController(sc);
+}
+@end
+
+static UIColor *TPFeedBackground(UIView *v) {
+    for (UIView *p = v.superview; p; p = p.superview) {
+        UIColor *c = p.backgroundColor;
+        if (c && CGColorGetAlpha(c.CGColor) > 0.9) return c;
+    }
+    return UIColor.systemBackgroundColor;
+}
+
+static void TPRemoveHiddenLine(UICollectionViewCell *cell) {
+    TPHiddenLine *line = objc_getAssociatedObject(cell, kTPHiddenLineKey);
+    if (line) {
+        [line removeFromSuperview];
+        objc_setAssociatedObject(cell, kTPHiddenLineKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSNumber *clips = objc_getAssociatedObject(cell, kTPCellClipsKey);
+        if (clips) cell.clipsToBounds = clips.boolValue;
+    }
+    if (objc_getAssociatedObject(cell, kTPCellCollapsedKey)) {
+        objc_setAssociatedObject(cell, kTPCellCollapsedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        NSNumber *clips = objc_getAssociatedObject(cell, kTPCellClipsKey);
+        if (clips) cell.clipsToBounds = clips.boolValue;
+        cell.hidden = NO;
+    }
+}
+
+// Rows after the first are collapsed to almost no height. Hiding alone isn't enough: the
+// collection view re-applies each row's layout (which un-hides it) without asking for the cell
+// again, and an unclipped row then draws its full content over the next post. Clipping to the
+// collapsed height keeps it invisible even when it's shown.
+static void TPCollapseCell(UICollectionViewCell *cell, id sc) {
+    if (!objc_getAssociatedObject(cell, kTPCellCollapsedKey)) {
+        if (!objc_getAssociatedObject(cell, kTPHiddenLineKey))
+            objc_setAssociatedObject(cell, kTPCellClipsKey, @(cell.clipsToBounds), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        TPWeakBox *box = [TPWeakBox new];
+        box.object = sc;
+        objc_setAssociatedObject(cell, kTPCellCollapsedKey, box, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    } else {
+        ((TPWeakBox *)objc_getAssociatedObject(cell, kTPCellCollapsedKey)).object = sc;
+    }
+    cell.clipsToBounds = YES;
+    cell.hidden = YES;
+}
+
+static void TPStyleFilteredCell(UICollectionViewCell *cell, NSInteger item, id sc) {
+    TPHiddenLine *line = objc_getAssociatedObject(cell, kTPHiddenLineKey);
+    if (!TPSectionFiltered(sc)) {
+        TPRemoveHiddenLine(cell);
+        cell.hidden = NO;
+        return;
+    }
+    if (item != 0) {
+        if (line) { TPRemoveHiddenLine(cell); line = nil; }
+        TPCollapseCell(cell, sc);
+        return;
+    }
+    if (objc_getAssociatedObject(cell, kTPCellCollapsedKey)) TPRemoveHiddenLine(cell);
+    cell.hidden = NO;
+    if (!line) {
+        objc_setAssociatedObject(cell, kTPCellClipsKey, @(cell.clipsToBounds), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        line = [[TPHiddenLine alloc] initWithFrame:cell.bounds];
+        objc_setAssociatedObject(cell, kTPHiddenLineKey, line, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    cell.clipsToBounds = YES;
+    line.section = sc;
+    line.frame = cell.bounds;
+    line.backgroundColor = TPFeedBackground(cell);
+    NSString *reason = objc_getAssociatedObject(sc, kTPFilterReasonKey);
+    line.label.text = reason.length ? [NSString stringWithFormat:@"%@ · %@", TPL(@"1 post hidden"), reason] : TPL(@"1 post hidden");
+    [cell addSubview:line];
+    [cell bringSubviewToFront:line];
+}
+
+// Re-style the section's cells already on screen (a filter decided after they were shown, or Show).
+static void TPRestyleSection(id sc) {
+    id ctx = [sc respondsToSelector:@selector(collectionContext)] ? [sc performSelector:@selector(collectionContext)] : nil;
+    SEL visSel = NSSelectorFromString(@"visibleCellsForSectionController:");
+    SEL idxSel = NSSelectorFromString(@"indexForCell:sectionController:");
+    if (!ctx || ![ctx respondsToSelector:visSel] || ![ctx respondsToSelector:idxSel]) return;
+    NSArray *cells = ((id (*)(id, SEL, id))objc_msgSend)(ctx, visSel, sc);
+    for (UICollectionViewCell *c in cells) {
+        NSInteger idx = ((NSInteger (*)(id, SEL, id, id))objc_msgSend)(ctx, idxSel, c, sc);
+        TPStyleFilteredCell(c, idx, sc);
+    }
+}
+
+static void TPMarkFiltered(id sc, NSString *reason) {
+    if (!sc || [objc_getAssociatedObject(sc, kTPRevealedKey) boolValue]) return;
+    if ([objc_getAssociatedObject(sc, kTPFilteredSectionKey) boolValue]) return;
+    objc_setAssociatedObject(sc, kTPFilteredSectionKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(sc, kTPFilterReasonKey, reason, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [TPPrefs recordFilteredPostWithReason:reason];
+    TPRestyleSection(sc);
+    TPInvalidateSectionController(sc);
+    // The match is often found while the post's rows are still being built (say in the text row),
+    // when the rows built just before it (the header) don't count as on screen yet and so miss the
+    // restyle above. Restyle again once they're in place, and after the section has shrunk.
+    __weak id weakSC = sc;
+    dispatch_async(dispatch_get_main_queue(), ^{ id s2 = weakSC; if (s2) TPRestyleSection(s2); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        id s2 = weakSC; if (s2) TPRestyleSection(s2);
+    });
+}
+
+static void TPTrackPendingNewAccountSection(NSString *pk, id sc) {
+    if (!pk.length || !sc) return;
+    if (!gTPPendingNewAcctSections) {
+        gTPPendingNewAcctSections = [NSMutableDictionary dictionary];
+        [NSNotificationCenter.defaultCenter addObserverForName:TPAuthorInfoDidUpdateNotification
+                                                        object:nil
+                                                         queue:NSOperationQueue.mainQueue
+                                                    usingBlock:^(NSNotification *n) {
+            if (![TPPrefs boolForKey:TPKeyHideNewAccounts]) return;
+            NSString *updatedPk = n.userInfo[@"pk"];
+            if (!updatedPk.length) return;
+            NSHashTable *table = gTPPendingNewAcctSections[updatedPk];
+            if (!table) return;
+            [gTPPendingNewAcctSections removeObjectForKey:updatedPk];
+            if (![TPAuthorInfo isNewAccountForPk:updatedPk]) return;
+            for (id pendingSC in table.allObjects) TPMarkFiltered(pendingSC, TPL(@"New account"));
+        }];
+    }
+    if (gTPPendingNewAcctSections.count > 300) [gTPPendingNewAcctSections removeAllObjects];
+    NSHashTable *table = gTPPendingNewAcctSections[pk];
+    if (!table) {
+        table = [NSHashTable weakObjectsHashTable];
+        gTPPendingNewAcctSections[pk] = table;
+    }
+    [table addObject:sc];
+}
+
 %hook IGListAdapter
 - (CGSize)sizeForItemAtIndexPath:(NSIndexPath *)path {
     CGSize r = %orig;
+    id sc = [self sectionControllerForSection:path.section];
+    if (TPSectionFiltered(sc)) {
+        return CGSizeMake(r.width, path.item == 0 ? kTPHiddenLineH : 0.01);
+    }
     CGFloat extra = [TPAuthorInfo extraHeaderHeight];
     if (extra > 0 && r.height > 0) {
-        id sc = [self sectionControllerForSection:path.section];
         NSIndexSet *rows = sc ? objc_getAssociatedObject(sc, kTPHeaderRowsKey) : nil;
         if ([rows containsIndex:(NSUInteger)path.item]) {
             r.height += extra;
@@ -4079,28 +4908,113 @@ static BOOL TPHeaderCellIsExtended(UICollectionViewCell *cell) {
 }
 - (UICollectionViewCell *)collectionView:(UICollectionView *)cv cellForItemAtIndexPath:(NSIndexPath *)path {
     UICollectionViewCell *cell = %orig;
+    id sc = [self sectionControllerForSection:path.section];
+    if (!sc) return cell;
+
     static Class headerCls;
     if (!headerCls) headerCls = objc_getClass("_TtC21BCNFeedItemHeaderCell21BCNFeedItemHeaderCell");
-    if (headerCls && [cell isKindOfClass:headerCls]) {
-        id sc = [self sectionControllerForSection:path.section];
-        if (!sc) return cell;
+    BOOL isHeader = (headerCls && [cell isKindOfClass:headerCls]);
+    if (isHeader) {
         NSMutableIndexSet *rows = objc_getAssociatedObject(sc, kTPHeaderRowsKey);
         if (!rows) { rows = [NSMutableIndexSet indexSet]; objc_setAssociatedObject(sc, kTPHeaderRowsKey, rows, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
         if (![rows containsIndex:(NSUInteger)path.item]) {
             [rows addIndex:(NSUInteger)path.item];
-            if ([TPAuthorInfo extraHeaderHeight] > 0) {
-                __weak id weakSC = sc;
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    id s = weakSC;
-                    id ctx = [s respondsToSelector:@selector(collectionContext)] ? [s performSelector:@selector(collectionContext)] : nil;
-                    SEL inv = NSSelectorFromString(@"invalidateLayoutForSectionController:completion:");
-                    if (ctx && [ctx respondsToSelector:inv])
-                        ((void (*)(id, SEL, id, id))objc_msgSend)(ctx, inv, s, nil);
-                });
-            }
+            if ([TPAuthorInfo extraHeaderHeight] > 0) TPInvalidateSectionController(sc);
         }
     }
+
+    // Feed and replies auto-filter. On a thread page only muted rules apply (not New Accounts),
+    // and never to the post the page is about: the first post section seen there, and anything
+    // above it, is left alone.
+    BOOL inThread = TPCollectionViewIsThreadDetail(cv);
+    BOOL protectedPost = NO;
+    if (inThread && isHeader) {
+        NSNumber *first = objc_getAssociatedObject(cv, kTPThreadFirstPostKey);
+        if (!first || path.section <= first.integerValue) {
+            objc_setAssociatedObject(cv, kTPThreadFirstPostKey, @(path.section), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            protectedPost = YES;
+        }
+    } else if (inThread) {
+        NSNumber *first = objc_getAssociatedObject(cv, kTPThreadFirstPostKey);
+        protectedPost = !first || path.section <= first.integerValue;
+    }
+    if (!protectedPost) {
+        BOOL revealed = [objc_getAssociatedObject(sc, kTPRevealedKey) boolValue];
+        BOOL alreadyFiltered = [objc_getAssociatedObject(sc, kTPFilteredSectionKey) boolValue];
+        BOOL shouldFilter = alreadyFiltered || revealed;
+        NSString *reason = nil;
+        if (!shouldFilter && isHeader && !inThread && [TPPrefs boolForKey:TPKeyHideNewAccounts]) {
+            NSMutableArray<UIView *> *hdrs = [NSMutableArray array];
+            TPCollectHeaders(cell, hdrs, 0);
+            for (UIView *h in hdrs) {
+                NSString *pk = [TPAuthorInfo pkForHeader:h];
+                if (!pk.length) continue;
+                if ([TPAuthorInfo infoForPk:pk]) {
+                    if ([TPAuthorInfo isNewAccountForPk:pk]) {
+                        shouldFilter = YES;
+                        reason = TPL(@"New account");
+                        break;
+                    }
+                } else {
+                    TPTrackPendingNewAccountSection(pk, sc);
+                    [TPAuthorInfo requestPk:pk];
+                }
+            }
+        }
+        NSString *matchedRule = nil;
+        if (!shouldFilter && isHeader) {
+            NSArray<NSString *> *kws = TPMutedKeywordsList();
+            if (kws.count) {
+                NSMutableArray<UIView *> *hdrs = [NSMutableArray array];
+                TPCollectHeaders(cell, hdrs, 0);
+                for (UIView *h in hdrs) {
+                    NSString *author = [TPAuthorInfo postInfoInHeader:h][@"author"];
+                    NSString *hit = TPAuthorMatchesMutedRules(author, kws);
+                    if (hit) {
+                        shouldFilter = YES;
+                        matchedRule = hit;
+                        reason = [NSString stringWithFormat:TPL(@"Muted %@"), hit];
+                        break;
+                    }
+                }
+            }
+        }
+        if (!shouldFilter) {
+            NSArray<NSString *> *kws = TPMutedKeywordsList();
+            NSString *kw = kws.count ? (TPCellModelContainsKeyword(cell, kws) ?: TPViewContainsKeyword(cell, kws, 0)) : nil;
+            if (kw) {
+                shouldFilter = YES;
+                matchedRule = kw;
+                reason = [NSString stringWithFormat:TPL(@"Keyword \"%@\""), kw];
+            }
+        }
+        if (shouldFilter && !alreadyFiltered && !revealed) {
+            if (matchedRule.length) TPRecordFilterHit(matchedRule);
+            if (matchedRule.length) objc_setAssociatedObject(sc, kTPFilterRuleKey, matchedRule, OBJC_ASSOCIATION_COPY_NONATOMIC);
+            TPMarkFiltered(sc, reason);
+        }
+        TPStyleFilteredCell(cell, path.item, sc);
+    } else {
+        TPStyleFilteredCell(cell, path.item, nil);
+    }
     return cell;
+}
+%end
+
+// The collection view re-applies a row's layout (position, size, hidden) without asking for the
+// cell again, e.g. while a filtered post shrinks. Re-assert the filtered look each time, and drop
+// it once the post has been shown again (Show).
+%hook UICollectionViewCell
+- (void)applyLayoutAttributes:(UICollectionViewLayoutAttributes *)attrs {
+    %orig;
+    UICollectionViewCell *cell = (UICollectionViewCell *)self;
+    TPWeakBox *collapsed = objc_getAssociatedObject(cell, kTPCellCollapsedKey);
+    TPHiddenLine *line = objc_getAssociatedObject(cell, kTPHiddenLineKey);
+    if (!collapsed && !line) return;
+    id sc = collapsed ? collapsed.object : line.section;
+    if (!TPSectionFiltered(sc)) { TPRemoveHiddenLine(cell); return; }
+    if (collapsed) { cell.clipsToBounds = YES; cell.hidden = YES; }
+    else cell.clipsToBounds = YES;
 }
 %end
 
@@ -4190,10 +5104,868 @@ static BOOL TPHeaderCellIsExtended(UICollectionViewCell *cell) {
 
 %end
 
+
+// =============================================================================
+// Whole-Thread One-Click Batch Download (Permalink / Thread Detail)
+// =============================================================================
+static const void *kTPThreadDLBtnKey = &kTPThreadDLBtnKey;
+// When the button was last long-pressed: the finger lifting afterwards must not also count as a tap.
+static CFTimeInterval gTPThreadLongPressAt;
+
+static UICollectionView *TPFindPrimaryCollectionView(UIView *root, int depth) {
+    if (!root || depth > 12) return nil;
+    if ([root isKindOfClass:[UICollectionView class]]) {
+        UICollectionView *cv = (UICollectionView *)root;
+        if (cv.bounds.size.height > 200 && cv.visibleCells.count > 0) return cv;
+    }
+    for (UIView *s in root.subviews) {
+        UICollectionView *found = TPFindPrimaryCollectionView(s, depth + 1);
+        if (found) return found;
+    }
+    return nil;
+}
+
+static void TPCollectThreadCells(UICollectionView *cv, NSMutableArray<NSDictionary *> *items,
+                                 NSMutableSet<NSString *> *seen, NSMutableDictionary *ctxBox) {
+    NSArray<UICollectionViewCell *> *cells = [cv.visibleCells sortedArrayUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+        CGFloat ya = a.frame.origin.y, yb = b.frame.origin.y;
+        return ya < yb ? NSOrderedAscending : (ya > yb ? NSOrderedDescending : NSOrderedSame);
+    }];
+    for (UICollectionViewCell *cell in cells) {
+        if (cell.hidden) continue;   // a reply hidden by the muted rules
+        NSArray<NSDictionary *> *raw = TPCollectPostMedia(cell);
+        for (NSDictionary *d in raw) {
+            if ([d[@"failed"] boolValue]) continue;
+            NSString *k = d[@"key"];
+            if (!k.length) k = [[d[@"urls"] firstObject] absoluteString];
+            if (k.length && [seen containsObject:k]) continue;
+            if (k.length) [seen addObject:k];
+            [items addObject:d];
+        }
+        if (!ctxBox[@"ctx"] && raw.count) {
+            NSDictionary *c = TPPostContextForCell(cell);
+            if ([c[@"code"] length] || [c[@"author"] length]) ctxBox[@"ctx"] = c;
+        }
+    }
+}
+
+// Threads loads the next batch of replies when the user drags near the end, not when the offset
+// is set from code: replay the delegate calls a finger drag and release would send.
+static void TPNudgeLoadMore(UIScrollView *sv) {
+    id<UIScrollViewDelegate> d = sv.delegate;
+    if (!d) return;
+    if ([d respondsToSelector:@selector(scrollViewWillBeginDragging:)]) [d scrollViewWillBeginDragging:sv];
+    if ([d respondsToSelector:@selector(scrollViewDidScroll:)]) [d scrollViewDidScroll:sv];
+    CGPoint target = sv.contentOffset;
+    if ([d respondsToSelector:@selector(scrollViewWillEndDragging:withVelocity:targetContentOffset:)])
+        [d scrollViewWillEndDragging:sv withVelocity:CGPointMake(0, 2.0) targetContentOffset:&target];
+    if ([d respondsToSelector:@selector(scrollViewDidEndDragging:willDecelerate:)]) [d scrollViewDidEndDragging:sv willDecelerate:NO];
+    if ([d respondsToSelector:@selector(scrollViewDidEndDecelerating:)]) [d scrollViewDidEndDecelerating:sv];
+}
+
+// Whole thread: Threads only builds cells for what's on screen, so scroll through the thread a
+// screen at a time, collect each reply's media with the same code as the post download button,
+// then scroll back to where the user was.
+//
+// Progress on the thread page: the top-right button always stays Threads' own plain image item
+// (never swapped or redrawn, so it looks the same on iOS 16–27 and never triggers the iOS 26
+// glass morph). Progress is a thin line just under the top bar plus a small status chip:
+// "12 found" while collecting, "Downloading 40%" while downloading, then a short result.
+
+typedef NS_ENUM(NSInteger, TPThreadBtnState) { TPThreadBtnIdle, TPThreadBtnCollecting, TPThreadBtnDownloading, TPThreadBtnDone };
+
+static UIImage *TPThreadIdleImage(void) { return [UIImage systemImageNamed:@"square.and.arrow.down.on.square"]; }
+
+@interface TPThreadStatusView : UIView
+@property (nonatomic, readonly) TPThreadBtnState phase;
+@property (nonatomic, copy) void (^onTap)(void);
+// Off-screen pages keep their state but don't show the strip.
+@property (nonatomic) BOOL suspended;
+- (void)attachTo:(UIViewController *)vc;
+- (void)showIdle;
+- (void)showCollecting:(NSUInteger)found;
+- (void)showProgress:(CGFloat)progress;
+- (void)showDone:(BOOL)ok saved:(NSInteger)saved failed:(NSInteger)failed;
+@end
+
+@implementation TPThreadStatusView {
+    UIView *_track, *_fill;
+    UIVisualEffectView *_chip;
+    UILabel *_label;
+    CGFloat _progress;
+    BOOL _indeterminate, _wantHidden;
+    NSUInteger _doneToken;
+}
+
+static const CGFloat kTPLineH = 2.5, kTPChipH = 26, kTPChipGap = 6;
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.alpha = 0;
+        self.hidden = YES;
+        _track = [UIView new];
+        _track.backgroundColor = [UIColor.labelColor colorWithAlphaComponent:0.1];
+        _track.clipsToBounds = YES;
+        [self addSubview:_track];
+        _fill = [UIView new];
+        _fill.backgroundColor = [TPUI accent];
+        [_track addSubview:_fill];
+        _chip = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThickMaterial]];
+        _chip.layer.cornerRadius = kTPChipH / 2;
+        _chip.clipsToBounds = YES;
+        [self addSubview:_chip];
+        _label = [UILabel new];
+        _label.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightSemibold];
+        _label.textColor = UIColor.labelColor;
+        _label.textAlignment = NSTextAlignmentCenter;
+        [_chip.contentView addSubview:_label];
+        [_chip addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(chipTapped)]];
+        _chip.isAccessibilityElement = YES;
+        _chip.accessibilityTraits = UIAccessibilityTraitButton;
+    }
+    return self;
+}
+
+- (void)chipTapped { if (self.onTap) self.onTap(); }
+
+// Only the chip takes touches; the rest of the strip lets the thread scroll underneath.
+- (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)e {
+    return !self.hidden && !_suspended && self.alpha > 0.05 && CGRectContainsPoint(CGRectInset(_chip.frame, -6, -6), p);
+}
+
+// Pinned just under the top bar. If the page's own view scrolls, the strip goes on the
+// navigation controller's view instead so it doesn't scroll away with the replies.
+- (void)attachTo:(UIViewController *)vc {
+    UIView *page = vc.view;
+    UIView *host = [page isKindOfClass:[UIScrollView class]] && vc.navigationController ? vc.navigationController.view : page;
+    if (!host || !page || self.superview == host) return;
+    [self removeFromSuperview];
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+    [host addSubview:self];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [self.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [self.topAnchor constraintEqualToAnchor:page.safeAreaLayoutGuide.topAnchor],
+        [self.heightAnchor constraintEqualToConstant:kTPLineH + kTPChipGap + kTPChipH],
+    ]];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat w = self.bounds.size.width;
+    _track.frame = CGRectMake(0, 0, w, kTPLineH);
+    if (!_indeterminate) _fill.frame = CGRectMake(0, 0, w * _progress, kTPLineH);
+    CGFloat lw = ceil([_label sizeThatFits:CGSizeMake(w - 40, kTPChipH)].width);
+    CGFloat cw = MIN(w - 32, lw + 24);
+    _chip.frame = CGRectMake(round((w - cw) / 2), kTPLineH + kTPChipGap, cw, kTPChipH);
+    _label.frame = _chip.contentView.bounds;
+}
+
+- (void)setText:(NSString *)text color:(UIColor *)color {
+    _label.text = text;
+    _label.textColor = color ?: UIColor.labelColor;
+    _chip.accessibilityLabel = text;
+    [self setNeedsLayout];
+}
+
+- (void)setSuspended:(BOOL)suspended {
+    _suspended = suspended;
+    [super setHidden:suspended || _wantHidden];
+}
+
+- (void)setHidden:(BOOL)hidden {
+    _wantHidden = hidden;
+    [super setHidden:hidden || _suspended];
+}
+
+- (void)appear {
+    _doneToken++;
+    [self.superview bringSubviewToFront:self];
+    if (!_wantHidden && self.alpha > 0.99) return;
+    self.hidden = NO;
+    [UIView animateWithDuration:0.2 animations:^{ self.alpha = 1; }];
+}
+
+- (void)disappear {
+    [UIView animateWithDuration:0.25 animations:^{ self.alpha = 0; } completion:^(BOOL f) {
+        if (self.alpha < 0.05) { self.hidden = YES; [self stopSweep]; }
+    }];
+}
+
+- (void)stopSweep {
+    _indeterminate = NO;
+    [_fill.layer removeAnimationForKey:@"sweep"];
+}
+
+- (void)startSweep {
+    if (_indeterminate) return;
+    _indeterminate = YES;
+    [self layoutIfNeeded];
+    CGFloat w = MAX(1, self.bounds.size.width), seg = w * 0.3;
+    _fill.frame = CGRectMake(0, 0, seg, kTPLineH);
+    CABasicAnimation *a = [CABasicAnimation animationWithKeyPath:@"position.x"];
+    a.fromValue = @(-seg / 2);
+    a.toValue = @(w + seg / 2);
+    a.duration = 1.1;
+    a.repeatCount = HUGE_VALF;
+    a.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    [_fill.layer addAnimation:a forKey:@"sweep"];
+}
+
+- (void)showIdle {
+    _phase = TPThreadBtnIdle;
+    [self disappear];
+}
+
+- (void)showCollecting:(NSUInteger)found {
+    _phase = TPThreadBtnCollecting;
+    _fill.backgroundColor = [TPUI accent];
+    [self startSweep];
+    [self setText:[NSString stringWithFormat:TPL(@"%lu found"), (unsigned long)found] color:nil];
+    [self appear];
+}
+
+- (void)showProgress:(CGFloat)progress {
+    _phase = TPThreadBtnDownloading;
+    _fill.backgroundColor = [TPUI accent];
+    [self stopSweep];
+    _progress = MAX(0.02, MIN(1, progress));
+    [self setText:[NSString stringWithFormat:@"%@ %.0f%%", TPL(@"Downloading"), floor(MAX(0, MIN(1, progress)) * 100)] color:nil];
+    [self appear];
+    [UIView animateWithDuration:0.2 animations:^{ [self layoutIfNeeded]; }];
+}
+
+- (void)showDone:(BOOL)ok saved:(NSInteger)saved failed:(NSInteger)failed {
+    _phase = TPThreadBtnDone;
+    [self stopSweep];
+    _progress = 1;
+    _fill.backgroundColor = ok ? UIColor.systemGreenColor : UIColor.systemRedColor;
+    NSString *text = !ok ? TPL(@"Download failed, please try again later")
+                   : failed > 0 ? [NSString stringWithFormat:TPL(@"Saved %ld, failed %ld"), (long)saved, (long)failed]
+                   : TPL(@"Done");
+    [self setText:text color:ok && failed == 0 ? UIColor.systemGreenColor : (ok ? nil : UIColor.systemRedColor)];
+    [self appear];
+    NSUInteger token = _doneToken;
+    __weak typeof(self) weak = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        typeof(self) s = weak;
+        if (s && s->_doneToken == token && s.phase == TPThreadBtnDone) [s showIdle];
+    });
+}
+@end
+
+@interface TPThreadDLHandler : NSObject
+@property (nonatomic, weak) UIViewController *vc;
+@property (nonatomic, strong) TPThreadStatusView *button;
+@property (nonatomic, weak) UIBarButtonItem *item;
+@property (nonatomic, copy) NSString *tag;          // marks this page's downloads in the history
+@property (nonatomic, copy) NSString *recordID;     // the download started from this page
+@property (nonatomic) BOOL collecting, stopEarly, cancelled;
+@property (nonatomic) NSUInteger found;
+@property (nonatomic) CGFloat lastProgress;
+// The open menu (if any) and the stage it was opened in: its title follows the button, and it
+// closes when the stage changes so its choices never go stale.
+@property (nonatomic, weak) UIAlertController *sheet;
+@property (nonatomic) TPThreadBtnState sheetPhase;
+- (void)syncSheet;
+@end
+
+static void TPDownloadWholeThread(TPThreadDLHandler *h);
+
+@implementation TPThreadDLHandler
+
+- (instancetype)init {
+    if ((self = [super init])) {
+        _tag = [@"thread-" stringByAppendingString:NSUUID.UUID.UUIDString];
+        NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+        [nc addObserver:self selector:@selector(progressed:) name:TPDownloadProgressNotification object:nil];
+        [nc addObserver:self selector:@selector(storeChanged) name:TPDownloadStoreDidChangeNotification object:nil];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [TPCapsule setHostedTag:_tag hosted:NO];
+}
+
+- (void)syncSheet {
+    UIAlertController *a = self.sheet;
+    if (!a) return;
+    TPThreadBtnState now = self.button.phase;
+    if (now != self.sheetPhase) {
+        self.sheet = nil;
+        [a dismissViewControllerAnimated:YES completion:nil];
+        return;
+    }
+    if (now == TPThreadBtnCollecting)
+        a.title = [NSString stringWithFormat:TPL(@"%lu found"), (unsigned long)self.found];
+    else if (now == TPThreadBtnDownloading)
+        a.title = [NSString stringWithFormat:@"%@ %.0f%%", TPL(@"Downloading"), floor(self.lastProgress * 100)];
+}
+
+- (void)progressed:(NSNotification *)n {
+    NSString *rid = n.userInfo[@"record"];
+    if (!rid) return;
+    if (!self.recordID) {
+        if (![[TPDownloadStore recordWithID:rid][@"tag"] isEqualToString:self.tag]) return;
+        self.recordID = rid;
+    }
+    if (![rid isEqualToString:self.recordID]) return;
+    self.lastProgress = [n.userInfo[@"progress"] doubleValue];
+    [self.button showProgress:self.lastProgress];
+    [self syncSheet];
+}
+
+- (void)storeChanged {
+    if (self.collecting) return;
+    if (!self.recordID) {
+        for (NSDictionary *r in [TPDownloadStore records]) if ([r[@"tag"] isEqualToString:self.tag]) { self.recordID = r[@"id"]; break; }
+        if (!self.recordID) return;
+    }
+    NSDictionary *r = [TPDownloadStore recordWithID:self.recordID];
+    NSInteger st = r ? [r[@"status"] integerValue] : 4;
+    if (st == 0 || st == 1) {
+        if (self.button.phase != TPThreadBtnDownloading) [self.button showProgress:self.lastProgress];
+        return;
+    }
+    if (self.button.phase != TPThreadBtnDownloading) return;
+    NSInteger saved = 0, failed = 0;
+    for (NSDictionary *it in r[@"items"]) {
+        NSInteger s = [it[@"state"] integerValue];
+        if (s == 2) saved++; else if (s == 3) failed++;
+    }
+    self.recordID = nil;
+    self.lastProgress = 0;
+    if (st == 4 || !r) [self.button showIdle];
+    else [self.button showDone:saved > 0 saved:saved failed:failed];
+    [self syncSheet];
+}
+
+- (BOOL)downloading {
+    NSInteger st = self.recordID ? [[TPDownloadStore recordWithID:self.recordID][@"status"] integerValue] : -1;
+    return self.recordID && (st == 0 || st == 1);
+}
+
+- (void)present:(UIAlertController *)a {
+    UIViewController *vc = self.vc;
+    if (!vc) return;
+    self.sheet = a;
+    self.sheetPhase = self.button.phase;
+    a.popoverPresentationController.barButtonItem = self.item;
+    [vc presentViewController:a animated:YES completion:nil];
+}
+
+- (void)tapped:(id)sender {
+    if (sender && CACurrentMediaTime() - gTPThreadLongPressAt < 2.0) return;
+    [TPUI hapticLight];
+    if (self.collecting) {
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:TPL(@"%lu found"), (unsigned long)self.found]
+                                                                   message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Stop and Download Found Items") style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *x) { self.stopEarly = YES; }]];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel Download") style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *x) { self.cancelled = YES; }]];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Close") style:UIAlertActionStyleCancel handler:nil]];
+        [self present:a];
+        return;
+    }
+    if ([self downloading]) {
+        NSString *title = [NSString stringWithFormat:@"%@ %.0f%%", TPL(@"Downloading"), floor(self.lastProgress * 100)];
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:title message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Download Manager") style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *x) { [TPDownloadManagerViewController present]; }]];
+        NSString *rid = self.recordID;
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel Download") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *x) {
+            if ([[TPDownloader activeRecordIDs] containsObject:rid]) [TPDownloader cancelRecord:rid];
+            else [TPDownloader removeQueuedRecord:rid];
+        }]];
+        [a addAction:[UIAlertAction actionWithTitle:TPL(@"Close") style:UIAlertActionStyleCancel handler:nil]];
+        [self present:a];
+        return;
+    }
+    TPDownloadWholeThread(self);
+}
+@end
+
+static void TPDownloadWholeThread(TPThreadDLHandler *h) {
+    UIViewController *vc = h.vc;
+    if (!vc || !vc.viewIfLoaded || h.collecting) return;
+    UICollectionView *cv = TPFindPrimaryCollectionView(vc.view, 0);
+    if (!cv) {
+        [TPHUD toast:TPL(@"No media found")];
+        return;
+    }
+    h.collecting = YES;
+    h.stopEarly = h.cancelled = NO;
+    h.found = 0;
+    h.recordID = nil;
+    h.lastProgress = 0;
+    [h.button showCollecting:0];
+
+    NSMutableArray<NSDictionary *> *items = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    NSMutableDictionary *ctxBox = [NSMutableDictionary dictionary];
+    CGPoint start = cv.contentOffset;
+    CGFloat top = -cv.adjustedContentInset.top;
+    __weak UICollectionView *wcv = cv;
+    __weak TPThreadDLHandler *wh = h;
+
+    void (^finish)(void) = ^{
+        TPThreadDLHandler *hh = wh;
+        hh.collecting = NO;
+        UICollectionView *c = wcv;
+        if (c) [c setContentOffset:start animated:NO];
+        if (!hh || hh.cancelled) { [hh.button showIdle]; [hh syncSheet]; return; }
+        if (!items.count) {
+            [hh.button showIdle];
+            [hh syncSheet];
+            [TPHUD toast:TPL(@"No media found")];
+            return;
+        }
+        [hh.button showProgress:0];
+        [hh syncSheet];
+        NSMutableDictionary *ctx = [NSMutableDictionary dictionaryWithDictionary:ctxBox[@"ctx"] ?: @{ @"kind": @"post" }];
+        ctx[@"tag"] = hh.tag;
+        ctx[@"quiet"] = @YES;
+        [TPHUD toast:[NSString stringWithFormat:TPL(@"Queued %lu media items from thread"), (unsigned long)items.count]];
+        [TPDownloader downloadItems:items context:ctx];
+    };
+
+    __block NSInteger steps = 0, waits = 0;
+    __block CGFloat waitHeight = 0;
+    __block void (^step)(void) = nil;
+    __block void (^stepRef)(void) = nil;
+    step = ^{
+        UICollectionView *c = wcv;
+        TPThreadDLHandler *hh = wh;
+        if (!hh || hh.cancelled || !c || !c.window) { stepRef = nil; finish(); return; }
+        TPCollectThreadCells(c, items, seen, ctxBox);
+        hh.found = items.count;
+        [hh.button showCollecting:items.count];
+        [hh syncSheet];
+        if (hh.stopEarly) { stepRef = nil; finish(); return; }
+        CGFloat page = MAX(200, c.bounds.size.height * 0.8);
+        CGFloat bottom = c.contentSize.height + c.adjustedContentInset.bottom - c.bounds.size.height;
+        void (^next)(void) = stepRef;
+        void (^again)(double) = ^(double delay) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (next) next(); });
+        };
+        // 150 screens is plenty; very long threads stop there rather than scrolling forever.
+        if (++steps > 150) { stepRef = nil; finish(); return; }
+        if (c.contentOffset.y >= bottom - 1) {
+            // At the bottom of what's loaded: Threads loads replies in batches, so wait for the
+            // next batch (up to ~4 s) before calling it the end.
+            if (c.contentSize.height > waitHeight + 1 && waitHeight > 0) waits = 0;
+            if (waits == 0) waitHeight = c.contentSize.height;
+            if (++waits > 10) { stepRef = nil; finish(); return; }
+            [c setContentOffset:CGPointMake(c.contentOffset.x, bottom) animated:NO];
+            TPNudgeLoadMore(c);
+            again(0.4);
+            return;
+        }
+        waits = 0;
+        waitHeight = 0;
+        [c setContentOffset:CGPointMake(c.contentOffset.x, MIN(bottom, c.contentOffset.y + page)) animated:NO];
+        [c layoutIfNeeded];
+        TPNudgeLoadMore(c);
+        // A short pause lets Threads fill in the new cells (and images) before reading them.
+        again(0.25);
+    };
+    stepRef = step;
+    [cv setContentOffset:CGPointMake(cv.contentOffset.x, top) animated:NO];
+    [cv layoutIfNeeded];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), step);
+}
+
+// Long-press the thread download button: open the download manager directly. A plain image bar
+// item has no long-press of its own on iOS 16–27, so one recognizer sits on the navigation bar
+// and only starts when the press lands on this button (other buttons are left alone).
+static UIView *TPFindViewWithLabel(UIView *v, NSString *label, int depth) {
+    if (!v || v.hidden || depth > 14) return nil;
+    if ([v.accessibilityLabel isEqualToString:label] && v.bounds.size.width >= 20) return v;
+    for (UIView *s in v.subviews) { UIView *f = TPFindViewWithLabel(s, label, depth + 1); if (f) return f; }
+    return nil;
+}
+
+static UIView *TPThreadItemView(UINavigationBar *bar, UIBarButtonItem *item) {
+    if (!bar || !item) return nil;
+    UIView *v = nil;
+    @try { v = [item valueForKey:@"view"]; } @catch (__unused id e) {}
+    if ([v isKindOfClass:[UIView class]] && v.window && v.window == bar.window && !v.hidden) return v;
+    return TPFindViewWithLabel(bar, item.accessibilityLabel ?: TPL(@"Download Thread"), 0);
+}
+
+@interface TPThreadLongPress : NSObject <UIGestureRecognizerDelegate>
++ (void)installOn:(UINavigationController *)nav;
+@end
+
+@implementation TPThreadLongPress
+static const void *kTPThreadLPKey = &kTPThreadLPKey;
+
++ (instancetype)shared { static TPThreadLongPress *s; static dispatch_once_t o; dispatch_once(&o, ^{ s = [self new]; }); return s; }
+
++ (void)installOn:(UINavigationController *)nav {
+    UINavigationBar *bar = nav.navigationBar;
+    if (!bar || objc_getAssociatedObject(bar, kTPThreadLPKey)) return;
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:[self shared] action:@selector(pressed:)];
+    lp.minimumPressDuration = 0.45;
+    lp.delegate = [self shared];
+    [bar addGestureRecognizer:lp];
+    objc_setAssociatedObject(bar, kTPThreadLPKey, lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static TPThreadDLHandler *TPHandlerForBar(UINavigationBar *bar) {
+    UIViewController *top = nil;
+    for (UIResponder *r = bar.nextResponder; r; r = r.nextResponder)
+        if ([r isKindOfClass:[UINavigationController class]]) { top = [(UINavigationController *)r topViewController]; break; }
+    return top ? objc_getAssociatedObject(top, kTPThreadDLBtnKey) : nil;
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+    UINavigationBar *bar = (UINavigationBar *)g.view;
+    if (![bar isKindOfClass:[UINavigationBar class]]) return NO;
+    TPThreadDLHandler *h = TPHandlerForBar(bar);
+    UIView *v = TPThreadItemView(bar, h.item);
+    if (!v) return NO;
+    CGRect r = CGRectInset([v convertRect:v.bounds toView:bar], -4, -4);
+    return CGRectContainsPoint(r, [g locationInView:bar]);
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o { return YES; }
+
+- (void)pressed:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    gTPThreadLongPressAt = CACurrentMediaTime();
+    [TPUI hapticLight];
+    [TPDownloadManagerViewController present];
+}
+@end
+
+%group ThreadBatchDownload
+%hook UIViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    if (!TPIsThreadDetailVCClass(self.class)) return;
+    TPThreadDLHandler *h = objc_getAssociatedObject(self, kTPThreadDLBtnKey);
+    if (h) { h.button.suspended = NO; [TPThreadLongPress installOn:self.navigationController]; [TPCapsule setHostedTag:h.tag hosted:YES]; return; }
+    if (![TPPrefs boolForKey:TPKeyShowDownloadBtn] || ![TPPrefs boolForKey:TPKeyThreadDownloadBtn]) return;
+    if (!self.navigationController || !self.navigationItem) return;
+
+    h = [TPThreadDLHandler new];
+    h.vc = self;
+    h.button = [TPThreadStatusView new];
+    __weak TPThreadDLHandler *wh = h;
+    h.button.onTap = ^{ [wh tapped:nil]; };
+    [h.button attachTo:self];
+    objc_setAssociatedObject(self, kTPThreadDLBtnKey, h, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // A plain image item, like the bell and "⋯": the system sizes and spaces it.
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithImage:TPThreadIdleImage() style:UIBarButtonItemStylePlain
+                                                            target:h action:@selector(tapped:)];
+    item.accessibilityLabel = TPL(@"Download Thread");
+    h.item = item;
+    NSMutableArray<UIBarButtonItem *> *right = [NSMutableArray arrayWithArray:self.navigationItem.rightBarButtonItems ?: @[]];
+    [right addObject:item];
+    self.navigationItem.rightBarButtonItems = right;
+    [TPThreadLongPress installOn:self.navigationController];
+    __weak UIViewController *wself = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIViewController *vc = wself;
+        UIView *v = vc ? TPThreadItemView(vc.navigationController.navigationBar, item) : nil;
+        if (v) TPShowTipOnce(@"thread_btn", v, TPL(@"Tap to download the whole thread. Long-press for the download manager"));
+    });
+    // While this page is open its button shows the progress, so the download pill stays hidden.
+    [TPCapsule setHostedTag:h.tag hosted:YES];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    %orig;
+    TPThreadDLHandler *h = objc_getAssociatedObject(self, kTPThreadDLBtnKey);
+    if (!h) return;
+    h.button.suspended = YES;
+    [TPCapsule setHostedTag:h.tag hosted:NO];
+}
+%end
+%end
+
+
+// =============================================================================
+// Long-Press Post Text Menu: Selectable Text, Quick Translate, Copy, Quick Mute
+// =============================================================================
+
+@interface TPSelectableTextViewController : UIViewController
+@property (nonatomic, copy) NSString *postText;
+@end
+
+@implementation TPSelectableTextViewController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = TPL(@"Select Text");
+    self.view.backgroundColor = [TPUI pageColor];
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
+                                                                                          target:self action:@selector(close)];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:TPL(@"Copy All")
+                                                                              style:UIBarButtonItemStyleDone
+                                                                             target:self action:@selector(copyAll)];
+    UITextView *tv = [UITextView new];
+    tv.text = _postText ?: @"";
+    tv.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    tv.textColor = UIColor.labelColor;
+    tv.backgroundColor = UIColor.clearColor;
+    tv.editable = NO;
+    tv.selectable = YES;
+    tv.textContainerInset = UIEdgeInsetsMake(16, 16, 24, 16);
+    tv.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:tv];
+    [NSLayoutConstraint activateConstraints:@[
+        [tv.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [tv.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [tv.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [tv.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
+}
+- (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)copyAll {
+    if (_postText.length) {
+        UIPasteboard.generalPasteboard.string = _postText;
+        [TPUI hapticLight];
+        [TPHUD toast:TPL(@"Copied")];
+    }
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+@end
+
+static void TPAppendMutedRule(NSString *rule) {
+    NSString *t = [rule stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!t.length) return;
+    NSMutableArray<NSString *> *list = [[TPPrefs mutedRules] mutableCopy];
+    if (![list containsObject:t]) {
+        [list insertObject:t atIndex:0];
+        [TPPrefs setMutedRules:list];
+    }
+}
+
+static NSString *TPExtractPostTextFromView(UIView *v, int depth) {
+    if (!v || depth > 6 || v.hidden) return nil;
+    if ([v respondsToSelector:@selector(styledString)]) {
+        id styled = nil;
+        @try { styled = [v valueForKey:@"styledString"]; } @catch (__unused id e) {}
+        id as = [styled respondsToSelector:@selector(attributedString)] ? [styled valueForKey:@"attributedString"] : nil;
+        if ([as isKindOfClass:[NSAttributedString class]]) {
+            NSString *s = [[(NSAttributedString *)as string] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (s.length >= 2) return s;
+        }
+    }
+    if ([v isKindOfClass:[UILabel class]]) {
+        NSString *s = [[(UILabel *)v text] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (s.length >= 2) return s;
+    } else if ([v isKindOfClass:[UITextView class]]) {
+        NSString *s = [[(UITextView *)v text] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (s.length >= 2) return s;
+    }
+    NSString *best = nil;
+    for (UIView *sub in v.subviews) {
+        NSString *cand = TPExtractPostTextFromView(sub, depth + 1);
+        if (cand.length > best.length) best = cand;
+    }
+    return best;
+}
+
+// The post's text, read from the text cells in the same post (section) as `cellRoot`, top to
+// bottom. Media cells don't hold the caption; Threads draws it in its own BCNFeedTextCell.
+static NSString *TPPostTextForCell(UIView *cellRoot) {
+    Class textCls = objc_getClass("_TtC15BCNFeedTextCell15BCNFeedTextCell");
+    if (!textCls) return nil;
+    UICollectionViewCell *cur = nil;
+    for (UIView *v = cellRoot; v; v = v.superview) {
+        if ([v isKindOfClass:[UICollectionViewCell class]]) { cur = (UICollectionViewCell *)v; continue; }
+        if (![v isKindOfClass:[UICollectionView class]] || !cur) continue;
+        UICollectionView *cv = (UICollectionView *)v;
+        NSIndexPath *ip = [cv indexPathForCell:cur];
+        if (!ip) continue;
+        NSMutableArray<UICollectionViewCell *> *texts = [NSMutableArray array];
+        for (UICollectionViewCell *c in cv.visibleCells) {
+            if (![c isKindOfClass:textCls]) continue;
+            NSIndexPath *cip = [cv indexPathForCell:c];
+            if (cip && cip.section == ip.section) [texts addObject:c];
+        }
+        if (!texts.count) continue;   // a carousel inside the post: try the feed around it
+        [texts sortUsingComparator:^NSComparisonResult(UICollectionViewCell *x, UICollectionViewCell *y) {
+            NSInteger a = [cv indexPathForCell:x].item, b = [cv indexPathForCell:y].item;
+            return a < b ? NSOrderedAscending : (a > b ? NSOrderedDescending : NSOrderedSame);
+        }];
+        NSMutableArray<NSString *> *parts = [NSMutableArray array];
+        for (UICollectionViewCell *c in texts) {
+            NSString *t = TPExtractPostTextFromView(c, 0);
+            if (t.length) [parts addObject:t];
+        }
+        return parts.count ? [parts componentsJoinedByString:@"\n"] : nil;
+    }
+    return nil;
+}
+
+// "Post Text" in the post download button's menu, or a long-press on Threads' own "⋯" in
+// the post header (text-only posts have no download button): select, translate, copy, or mute.
+// It lives in our own menu instead of a long-press on the text, which Threads already uses for
+// its own text selection and highlights.
+static void TPShowPostTextActions(UIView *cell, NSString *author, UIView *anchor) {
+    // From a download button inside a quoted post: that quoted post's text and author.
+    UIView *nested = anchor ? TPNestedPostAncestor(anchor) : nil;
+    NSDictionary *quoted = TPNestedPostInfo(nested);
+    NSString *text = nested ? (quoted[@"text"] ?: TPExtractPostTextFromView(nested, 0)) : TPPostTextForCell(cell);
+    if (nested && [quoted[@"author"] length]) author = quoted[@"author"];
+    if (!text.length) { [TPHUD toast:TPL(@"This post has no text")]; return; }
+    UIViewController *top = TPTopViewController();
+    if (!top) return;
+    if (!author.length) author = TPPostContextForCell(cell)[@"author"];
+    [TPUI hapticLight];
+    NSString *preview = text.length > 60 ? [[text substringToIndex:60] stringByAppendingString:@"…"] : text;
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:preview message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Select Text") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        TPSelectableTextViewController *vc = [TPSelectableTextViewController new];
+        vc.postText = text;
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+        [top presentViewController:nav animated:YES completion:nil];
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Quick Translate") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        NSString *lang = NSLocale.preferredLanguages.firstObject ?: @"zh-TW";
+        NSString *tl = [lang hasPrefix:@"zh-Hans"] ? @"zh-CN" : ([lang hasPrefix:@"zh"] ? @"zh-TW" : ([lang hasPrefix:@"ja"] ? @"ja" : ([lang hasPrefix:@"ko"] ? @"ko" : @"en")));
+        NSURLComponents *comps = [NSURLComponents componentsWithString:@"https://translate.google.com/"];
+        comps.queryItems = @[
+            [NSURLQueryItem queryItemWithName:@"sl" value:@"auto"],
+            [NSURLQueryItem queryItemWithName:@"tl" value:tl],
+            [NSURLQueryItem queryItemWithName:@"text" value:text],
+            [NSURLQueryItem queryItemWithName:@"op" value:@"translate"],
+        ];
+        if (comps.URL) {
+            SFSafariViewController *sf = [[SFSafariViewController alloc] initWithURL:comps.URL];
+            [top presentViewController:sf animated:YES completion:nil];
+        }
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Copy Text") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        UIPasteboard.generalPasteboard.string = text;
+        [TPUI hapticLight];
+        [TPHUD toast:TPL(@"Copied")];
+    }]];
+
+    if (author.length) {
+        NSString *atAuthor = [@"@" stringByAppendingString:author];
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:TPL(@"Mute %@"), atAuthor]
+                                                  style:UIAlertActionStyleDestructive
+                                                handler:^(__unused UIAlertAction *a) {
+            TPAppendMutedRule(atAuthor);
+            [TPUI hapticLight];
+            [TPHUD toast:[NSString stringWithFormat:TPL(@"Muted %@"), atAuthor]];
+        }]];
+    }
+
+    [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Mute Keyword…") style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a) {
+        UIAlertController *al = [UIAlertController alertControllerWithTitle:TPL(@"Add Muted Rule")
+                                                                    message:TPL(@"Enter a keyword from this post to mute:")
+                                                             preferredStyle:UIAlertControllerStyleAlert];
+        [al addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+            tf.placeholder = TPL(@"Keyword or /regex/");
+            tf.clearButtonMode = UITextFieldViewModeWhileEditing;
+        }];
+        [al addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+        [al addAction:[UIAlertAction actionWithTitle:TPL(@"Add") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *act) {
+            NSString *kw = al.textFields.firstObject.text;
+            if (kw.length) {
+                TPAppendMutedRule(kw);
+                [TPUI hapticLight];
+                [TPHUD toast:TPL(@"Muted keywords saved")];
+            }
+        }]];
+        [top presentViewController:al animated:YES completion:nil];
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
+    // Anchor the menu on the small control it came from (the download button or "⋯"). Anchored
+    // on a whole tall media row, iOS squeezes it into the little space left above or below.
+    UIView *src = anchor.window ? anchor : cell;
+    sheet.popoverPresentationController.sourceView = src;
+    sheet.popoverPresentationController.sourceRect = src.bounds;
+    [top presentViewController:sheet animated:YES completion:nil];
+}
+
+
+
+// Long-press the "⋯" at the right of a post header: the post text actions. A tap still opens
+// Threads' own menu. The button is found on screen (the rightmost small tap button in the
+// header), not through Swift storage, so it works across Threads versions.
+static const void *kTPMoreLPKey = &kTPMoreLPKey;
+
+@interface TPMoreButtonPress : NSObject
++ (instancetype)shared;
+@end
+
+@implementation TPMoreButtonPress
++ (instancetype)shared { static TPMoreButtonPress *s; static dispatch_once_t o; dispatch_once(&o, ^{ s = [self new]; }); return s; }
+- (void)pressed:(UILongPressGestureRecognizer *)g {
+    if (g.state != UIGestureRecognizerStateBegan) return;
+    UIView *header = g.view;
+    while (header && ![header isKindOfClass:TPFeedHeaderClass()]) header = header.superview;
+    if (!header) return;
+    TPShowPostTextActions(header, [TPAuthorInfo postInfoInHeader:header][@"author"], g.view);
+}
+@end
+
+static UIView *TPHeaderMoreButton(UIView *header) {
+    Class tapCls = objc_getClass("IGTapButton");
+    if (!tapCls) return nil;
+    NSMutableArray<UIView *> *found = [NSMutableArray array];
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:header];
+    while (stack.count) {
+        UIView *v = stack.lastObject; [stack removeLastObject];
+        for (UIView *sv in v.subviews) {
+            if (sv.hidden || sv.alpha < 0.05) continue;
+            if ([sv isKindOfClass:tapCls]) { [found addObject:sv]; continue; }
+            [stack addObject:sv];
+        }
+    }
+    UIView *best = nil;
+    CGFloat bestX = -CGFLOAT_MAX;
+    for (UIView *b in found) {
+        CGRect f = [b convertRect:b.bounds toView:header];
+        if (f.size.width < 10 || f.size.width > 60 || f.size.height > 60) continue;
+        // Only the far right of the header: the "⋯" sits there, the name and badges don't.
+        if (CGRectGetMaxX(f) < header.bounds.size.width * 0.75) continue;
+        if (CGRectGetMaxX(f) > bestX) { bestX = CGRectGetMaxX(f); best = b; }
+    }
+    return best;
+}
+
+%group PostMoreLongPress
+%hook _TtC21BCNFeedItemHeaderCell32BCNFeedItemHeaderCellContentView
+- (void)layoutSubviews {
+    %orig;
+    UIView *header = (UIView *)self;
+    // Headers lay out often while scrolling: once this header's "⋯" has the gesture, skip the search.
+    UIView *known = ((TPWeakBox *)objc_getAssociatedObject(header, kTPMoreLPKey)).object;
+    if (known && [known isDescendantOfView:header] && objc_getAssociatedObject(known, kTPMoreLPKey)) return;
+    UIView *more = TPHeaderMoreButton(header);
+    if (!more) return;
+    TPWeakBox *box = [TPWeakBox new];
+    box.object = more;
+    objc_setAssociatedObject(header, kTPMoreLPKey, box, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    TPOfferTip(@"more_btn", more, @"Long-press “⋯” to select, translate, copy or mute the post text", 1.5);
+    if (objc_getAssociatedObject(more, kTPMoreLPKey)) return;
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:[TPMoreButtonPress shared] action:@selector(pressed:)];
+    lp.minimumPressDuration = 0.45;
+    [more addGestureRecognizer:lp];
+    objc_setAssociatedObject(more, kTPMoreLPKey, lp, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+%end
+%end
+
 %ctor {
     @autoreleasepool {
+        // Before Threads opens any cached files.
+        [TPSettingsViewController runPendingCacheClear];
         TPSideloadFixInstall();
-        for (NSString *old in @[@"tp_last_logout", @"tp_logout_history", @"tp_logout_keychain"])
+        for (NSString *old in @[@"tp_last_logout", @"tp_logout_history", @"tp_logout_keychain", @"tp_swipe_lock_speed", @"tp_video_gestures", @"tp_parallel_download", @"tp_hide_reposts", @"tp_name_country"])
             [[TPPrefs defaults] removeObjectForKey:old];
         // 1.30 added "With Year" as option 2; "With Seconds" moved from 2 to 3.
         if (![[TPPrefs defaults] boolForKey:@"tp_time_format_v2"]) {
@@ -4215,6 +5987,7 @@ static BOOL TPHeaderCellIsExtended(UICollectionViewCell *cell) {
         gTPMainFeedClass = objc_getClass("_TtC11BCNMainFeed25BCNMainFeedViewController");
         %init(HomeFeedControls);
         gTPUserRecsClass = objc_getClass("_TtC22BCNUserRecommendations36BCNUserRecommendationsViewController");
+        gTPRecAccountsClass = objc_getClass("_TtC22BCNRecommendedAccounts36BCNRecommendedAccountsViewController");
         %init(HideFollowSuggest);
         %init(PinTabBar);
         %init(HideFeedSuggestions);
@@ -4224,14 +5997,37 @@ static BOOL TPHeaderCellIsExtended(UICollectionViewCell *cell) {
         %init(ExternalBrowser);
         %init(HideIGButton);
         %init(HomeLongPress);
+        TPInstallMuteRefreshSound();
         %init(NoSeen);
         %init(KeepUnsent);
         %init(NoTyping);
         %init(Menu);
         %init(AuthorInfo);
+        %init(ThreadBatchDownload);
+        %init(PostMoreLongPress);
         TPAuthorOpenProfile = ^(NSString *username) {
             NSURL *u = [NSURL URLWithString:[@"https://www.threads.com/@" stringByAppendingString:username]];
             if (u) TPOpenInThreads(u);
+        };
+        // Threads only routes post links shaped like /@author/post/CODE; a bogus placeholder handle
+        // like "@threads" is ignored. When author is missing, resolve it first, then open; if
+        // code is missing but author is known, open the author's profile.
+        TPDownloadOpenPost = ^(NSString *code, NSString *author) {
+            if (code.length && author.length) {
+                NSString *path = [NSString stringWithFormat:@"@%@/post/%@", author, code];
+                NSURL *u = [NSURL URLWithString:[@"https://www.threads.com/" stringByAppendingString:path]];
+                if (u) TPOpenInThreads(u);
+                return;
+            }
+            if (code.length) {
+                NSURL *fallback = [NSURL URLWithString:[@"https://www.threads.com/t/" stringByAppendingString:code]];
+                if (fallback) TPOpenInThreads(fallback);
+                return;
+            }
+            if (author.length) {
+                NSURL *u = [NSURL URLWithString:[@"https://www.threads.com/@" stringByAppendingString:author]];
+                if (u) TPOpenInThreads(u);
+            }
         };
 
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidEnterBackgroundNotification

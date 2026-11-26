@@ -6,6 +6,7 @@
 #import "TPVersion.h"
 #import "TPDownloader.h"
 #import <objc/runtime.h>
+#import <dlfcn.h>
 #import <objc/message.h>
 #import <malloc/malloc.h>
 
@@ -169,7 +170,8 @@ static void TPSaveCacheSoon(void) {
     });
 }
 
-static NSMutableDictionary<NSString *, NSString *> *gHeaderNames;   // pk -> handle seen in a feed header
+static NSMutableDictionary<NSString *, NSString *> *gHeaderNames;
+static NSMutableDictionary<NSString *, NSString *> *gPostAuthors;   // pk -> handle seen in a feed header
 
 static void TPStore(NSString *pk, NSString *location, NSString *joined, NSString *number, BOOL hidden, BOOL failed, NSDictionary *extra) {
     if (![extra[@"u"] length] && gHeaderNames[pk]) {
@@ -221,6 +223,37 @@ static void TPStore(NSString *pk, NSString *location, NSString *joined, NSString
     gEmptyStreak = 0;
     [self log:@"resumed by user"];
     [self pump];
+}
+
++ (NSDictionary *)exportCache {
+    TPLoadCache();
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+    [gCache enumerateKeysAndObjectsUsingBlock:^(NSString *pk, NSDictionary *e, BOOL *stop) {
+        if ([e[@"x"] doubleValue] <= now) return;
+        if (![e[@"location"] length] && ![e[@"joined"] length] && ![e[@"hidden"] boolValue]) return;   // failed lookups
+        out[pk] = e;
+    }];
+    return out;
+}
+
++ (NSInteger)importCache:(NSDictionary *)entries {
+    if (![entries isKindOfClass:[NSDictionary class]]) return 0;
+    TPLoadCache();
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    __block NSInteger n = 0;
+    [entries enumerateKeysAndObjectsUsingBlock:^(id pk, id e, BOOL *stop) {
+        if (![pk isKindOfClass:[NSString class]] || ![e isKindOfClass:[NSDictionary class]]) return;
+        if ([e[@"v"] integerValue] < 3 || [e[@"x"] doubleValue] <= now) return;
+        if ([gCache[pk][@"x"] doubleValue] >= [e[@"x"] doubleValue]) return;
+        gCache[pk] = e;
+        n++;
+    }];
+    if (n) {
+        TPSaveCacheSoon();
+        [NSNotificationCenter.defaultCenter postNotificationName:TPAuthorInfoDidUpdateNotification object:nil userInfo:@{}];
+    }
+    return n;
 }
 
 + (void)clearCache {
@@ -350,16 +383,19 @@ static id TPBuildObjectSet(NSInteger subtype) {
 
 #pragma mark - Pointer safety
 
-static CFMutableSetRef gClassSet;
-
-static void TPBuildClassSet(void) {
-    if (gClassSet) return;
-    unsigned int n = 0;
-    Class *list = objc_copyClassList(&n);
-    CFMutableSetRef set = CFSetCreateMutable(NULL, n, NULL);
-    for (unsigned int i = 0; i < n; i++) CFSetAddValue(set, (__bridge const void *)list[i]);
-    free(list);
-    gClassSet = set;
+// A class pointer read from memory counts as a class when it lies inside a loaded image (the app,
+// a framework or the system). objc_copyClassList used to supply the full list, but it loads every
+// class in Threads at once, which crashes on iOS 16.
+// A real class's isa (its metaclass) and the metaclass's isa (the root metaclass) also lie in an
+// image; checking all three with dladdr only ever reads memory inside loaded images.
+static BOOL TPIsImageClass(uintptr_t isa) {
+    for (int depth = 0; depth < 3; depth++) {
+        if (isa < 0x100000000ULL) return NO;
+        Dl_info info;
+        if (!dladdr((const void *)isa, &info) || !info.dli_fname) return NO;
+        isa = *(const uintptr_t *)isa & 0x0000000ffffffff8ULL;
+    }
+    return YES;
 }
 
 // Block arguments of unknown signature are received as raw pointers; only treat one as an object
@@ -373,7 +409,7 @@ static id TPAsObject(void *p) {
     uintptr_t isa = *(uintptr_t *)p;
     const uintptr_t masks[] = { 0x0000000ffffffff8ULL, 0x007ffffffffffff8ULL, ~(uintptr_t)7 };
     for (int i = 0; i < 3; i++) {
-        if (gClassSet && CFSetContainsValue(gClassSet, (const void *)(isa & masks[i]))) return (__bridge id)p;
+        if (TPIsImageClass(isa & masks[i])) return (__bridge id)p;
     }
     return nil;
 }
@@ -888,7 +924,6 @@ static void TPHandleResult(NSUInteger token, NSString *pk, NSInteger variant, BO
     [gQueue removeObject:pk];
     [gPending removeObject:pk];
 
-    TPBuildClassSet();
     gInFlight = YES;
     gInFlightPk = pk;
     gLastRequest = now;
@@ -948,7 +983,6 @@ static NSString *TPSwiftString(const void *base) {
     uintptr_t obj = (uintptr_t)(w1 & 0x0FFFFFFFFFFFFFFFULL);
     if (obj < 0x100000000ULL) return nil;
     if (disc & 0x40) { // bridged NSString
-        TPBuildClassSet();
         id o = TPAsObject((void *)obj);
         return [o isKindOfClass:[NSString class]] ? [o copy] : nil;
     }
@@ -963,11 +997,24 @@ static BOOL TPIsDigits(NSString *s) {
     return [s rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet.invertedSet].location == NSNotFound;
 }
 
+// Swift ivars of struct/enum/optional type have no type encoding; their raw bits aren't an
+// object. Read an ivar as an object only when it is one (see TPDownloader's ivarValue).
+static id TPCheckedIvarAI(id obj, Ivar iv) {
+    if (!obj || !iv) return nil;
+    const char *enc = ivar_getTypeEncoding(iv);
+    if (enc && enc[0] == '@') return object_getIvar(obj, iv);
+    if (enc && enc[0]) return nil;
+    void *p = *(void **)((uint8_t *)(__bridge void *)obj + ivar_getOffset(iv));
+    uintptr_t v = (uintptr_t)p;
+    if (!v) return nil;
+    if ((intptr_t)v < 0) return object_getClass((__bridge id)p) ? (__bridge id)p : nil;
+    if (v < 0x100000000ULL || (v & 7) || malloc_size(p) < 16) return nil;
+    return (__bridge id)p;
+}
+
 static id TPIvarObject(id obj, const char *name) {
     if (!obj) return nil;
-    Ivar iv = class_getInstanceVariable(object_getClass(obj), name);
-    if (!iv) return nil;
-    return object_getIvar(obj, iv);
+    return TPCheckedIvarAI(obj, class_getInstanceVariable(object_getClass(obj), name));
 }
 
 static NSString *TPHeaderPk(UIView *contentView) {
@@ -1203,7 +1250,129 @@ static NSAttributedString *TPBadgeText(NSDictionary *info, UIFont *font, UIColor
     return ceil([UIFont systemFontOfSize:12].lineHeight) + 12;
 }
 
+static Ivar TPFindIvar(id obj, const char *name) {
+    for (Class c = obj ? object_getClass(obj) : Nil; c; c = class_getSuperclass(c)) {
+        Ivar iv = class_getInstanceVariable(c, name);
+        if (iv) return iv;
+    }
+    return NULL;
+}
+
+static id TPIvarDeep(id obj, const char *name) {
+    Ivar iv = TPFindIvar(obj, name);
+    return TPCheckedIvarAI(obj, iv);
+}
+
+static NSString *TPUsernameOf(id user) {
+    if (!user || ![user respondsToSelector:@selector(username)]) return nil;
+    id u = nil;
+    @try { u = [user valueForKey:@"username"]; } @catch (__unused id e) {}
+    return [u isKindOfClass:[NSString class]] && [u length] ? u : nil;
+}
+
+// Author and post of a feed post header, from its model (the title is drawn text, not readable):
+// author from the profile picture's user or the header's user fragment, post from its media.
++ (NSDictionary *)postInfoInHeader:(UIView *)contentView {
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+    id pic = TPIvarDeep(contentView, "profilePictureView");
+    id image = TPIvarDeep(pic, "image");
+    NSString *author = TPUsernameOf(TPIvarDeep(image, "_profileImageModel_user"));
+    if (author) out[@"via"] = @"picture";
+    id vm = TPIvarDeep(contentView, "viewModel");
+    if (!author) { author = TPUsernameOf(TPIvarDeep(vm, "userFragment")); if (author) out[@"via"] = @"user"; }
+    if (!author) {
+        UIView *title = TPIvarObject(contentView, "titleLabel");
+        id tv = TPIvarDeep(title, "textView");
+        id styled = [tv respondsToSelector:@selector(styledString)] ? [tv valueForKey:@"styledString"] : nil;
+        NSAttributedString *as = [styled respondsToSelector:@selector(attributedString)] ? [styled valueForKey:@"attributedString"] : nil;
+        NSString *t = [as isKindOfClass:[NSAttributedString class]] ? as.string : TPTitleText(title, 0);
+        NSRange r = [t ?: @"" rangeOfString:@"^[A-Za-z0-9._]{1,30}" options:NSRegularExpressionSearch];
+        if (r.location != NSNotFound) { author = [t substringWithRange:r]; out[@"via"] = @"title"; }
+    }
+    if (!author) {
+        NSString *pk = TPHeaderPk(contentView);
+        author = pk ? (gCache[pk][@"u"] ?: gHeaderNames[pk]) : nil;
+        if (author) out[@"via"] = @"cache";
+    }
+    if (author.length) out[@"author"] = author;
+
+    id media = TPIvarDeep(vm, "mediaFragment");
+    id code = nil;
+    if ([media respondsToSelector:@selector(code)]) { @try { code = [media valueForKey:@"code"]; } @catch (__unused id e) {} }
+    if ([code isKindOfClass:[NSString class]] && [code length]) out[@"code"] = code;
+    for (NSString *k in @[@"pk", @"id", @"mediaID"]) {
+        if (out[@"mediaId"] || ![media respondsToSelector:NSSelectorFromString(k)]) continue;
+        id v = nil;
+        @try { v = [media valueForKey:k]; } @catch (__unused id e) {}
+        if ([v isKindOfClass:[NSString class]] && [v length]) out[@"mediaId"] = v;
+    }
+    if (!out[@"mediaId"] && vm) {
+        Ivar iv = TPFindIvar(vm, "mediaIdForLogging");
+        NSString *mid = iv ? TPSwiftString((const char *)(__bridge void *)vm + ivar_getOffset(iv)) : nil;
+        if (mid.length) out[@"mediaId"] = mid;
+    }
+    return out;
+}
+
+static NSString *TPShortcodeFromMediaPK(NSString *pk) {
+    if (!pk.length) return nil;
+    pk = [[pk componentsSeparatedByString:@"_"] firstObject];
+    unsigned long long n = strtoull(pk.UTF8String, NULL, 10);
+    if (!n) return nil;
+    static const char *alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    NSMutableString *s = [NSMutableString string];
+    while (n) { [s insertString:[NSString stringWithFormat:@"%c", alpha[n % 64]] atIndex:0]; n /= 64; }
+    return s;
+}
+
+static void TPNotePostAuthorFromHeader(UIView *contentView) {
+    if (!contentView) return;
+    NSDictionary *info = [TPAuthorInfo postInfoInHeader:contentView];
+    NSString *author = info[@"author"];
+    if (!author.length) return;
+    NSString *code = info[@"code"];
+    NSString *sc = [info[@"mediaId"] length] ? TPShortcodeFromMediaPK(info[@"mediaId"]) : nil;
+    if (!code.length && !sc.length) return;
+    if (!gPostAuthors) gPostAuthors = [NSMutableDictionary dictionary];
+    if (gPostAuthors.count >= 2000) [gPostAuthors removeAllObjects];
+    if (code.length) gPostAuthors[code] = author;
+    if (sc.length) gPostAuthors[sc] = author;
+}
+
++ (NSString *)authorForPostCode:(NSString *)code {
+    return code.length ? gPostAuthors[code] : nil;
+}
+
++ (NSString *)locationForUsername:(NSString *)username {
+    if (!username.length) return nil;
+    TPLoadCache();
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    __block NSString *loc = nil;
+    [gCache enumerateKeysAndObjectsUsingBlock:^(NSString *pk, NSDictionary *e, BOOL *stop) {
+        if ([e[@"x"] doubleValue] < now || ![e[@"u"] isEqualToString:username]) return;
+        if ([e[@"location"] isKindOfClass:[NSString class]] && [e[@"location"] length]) { loc = e[@"location"]; *stop = YES; }
+    }];
+    return loc;
+}
+
++ (NSString *)usernameForPk:(NSString *)pk {
+    if (!pk.length) return nil;
+    NSString *u = gCache[pk][@"u"] ?: gHeaderNames[pk];
+    return u.length ? u : nil;
+}
+
++ (NSString *)pkForHeader:(UIView *)contentView {
+    return contentView ? TPHeaderPk(contentView) : nil;
+}
+
++ (BOOL)isNewAccountForPk:(NSString *)pk {
+    if (!pk.length) return NO;
+    NSString *joined = gCache[pk][@"joined"];
+    return joined.length ? [self isNewAccount:joined] : NO;
+}
+
 + (void)layoutBadgeInHeader:(UIView *)contentView {
+    TPNotePostAuthorFromHeader(contentView);
     TPAuthorBadgeLabel *badge = objc_getAssociatedObject(contentView, kBadgeKey);
     if (![self enabled]) { badge.hidden = YES; return; }
 
