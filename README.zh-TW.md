@@ -2,7 +2,7 @@
 
 [English](README.md) | **繁體中文**
 
-Threads（`com.burbn.barcelona`）的 iOS 增強插件。目前版本：**1.32.0**
+Threads（`com.burbn.barcelona`）的 iOS 增強插件。目前版本：**1.32.1**
 
 不需要越獄：用 GitHub Actions 就能編譯出注入好的 Threads IPA，再用自己的簽名工具安裝。
 
@@ -82,7 +82,7 @@ Threads（`com.burbn.barcelona`）的 iOS 增強插件。目前版本：**1.32.0
 
 **主題色**：在設定主頁最上方的插件資訊卡裡，點色點即可切換（珊瑚／海洋／薄荷／薰衣草／櫻花／琥珀），只改變插件按鈕與設定頁的顏色。
 
-**語言**：同一張資訊卡裡可選「跟隨系統」、English、繁體中文、简体中文、日本語或한국어，插件自己的文字立即切換，不影響 Threads 本身。
+**語言**：同一張資訊卡裡可選「跟隨系統」、English、繁體中文、简体中文、日本語、한국어或 Tiếng Việt，插件自己的文字立即切換，不影響 Threads 本身。
 
 **關於**（主頁「備份／進階」卡片最下面一行，旁邊直接顯示版本號）：顯示插件版本、Threads 版本、Bundle ID、機型與 iOS 版本（含建置編號），可一鍵複製全部資訊；另有「檢查更新」、GitHub 原始碼連結，以及「在 GitHub 回報問題」，會開啟 GitHub 新 issue 並自動填入這些資訊。「重設所有設定」在這一頁最下方。
 
@@ -246,9 +246,9 @@ ThreadsPulse/
 ## 語系
 
 - 程式裡一律用 `TPL(@"English text")`，**英文原文就是 key**；找不到翻譯時直接顯示英文。
-- 內建語言：英文（`en`）、繁體中文（`zh-Hant`）、簡體中文（`zh-Hans`）、日文（`ja`）、韓文（`ko`）。預設跟隨系統語言（其他語言顯示英文），也可在設定頁最上方的「語言」指定。
-- 新增語言：複製 `en.lproj` 改名（例如 `fr.lproj`）並翻譯，到 `Info.plist` 的 `CFBundleLocalizations` 加上語言代碼，再把它加進語言選單（`TPSettingsViewController.m`）與 `TPLocalization.m`。
-- 簡體中文、日文、韓文的翻譯歡迎母語使用者協助修正。
+- 內建語言：英文（`en`）、繁體中文（`zh-Hant`）、簡體中文（`zh-Hans`）、日文（`ja`）、韓文（`ko`）、越南文（`vi`）。預設跟隨系統語言（其他語言顯示英文），也可在設定頁最上方的「語言」指定。
+- 新增語言：複製 `en.lproj` 改名（例如 `fr.lproj`）並翻譯，到 `Info.plist` 的 `CFBundleLocalizations` 加上語言代碼，再把它加進語言選單（`TPSettingsViewController.m`）、`TPLocalization.m` 與 `TPPrefs.m` 的語言上限。
+- 簡體中文、日文、韓文、越南文的翻譯歡迎母語使用者協助修正。
 
 ## 實作重點
 
@@ -280,7 +280,7 @@ ThreadsPulse/
 - **停用自動播放**：動態裡的影片滑進畫面時（`-[IGFNFVideoPlayer playWithReason:callsiteContext:]`，原因代碼 1），照常讓 Threads 走完播放流程，介面（包括聲音圖示）才會正常出現，但把底層的 `FNFPlayer` 按住：第一次 `play` 以音量 0 試播，讓 Threads 走到「開始播放」並顯示聲音圖示，接著在第一格暫停（`videoPlayerDidInitialPlay:`）；之後的 `play` / `playWithContext:` 一律忽略。點一下影片（手指幾乎沒移動，所以滑動不算）才放開並讓 `FNFPlayer` 開始播放。其他原因（例如全螢幕）和不在動態裡的影片照常播放。開始播放後同一個播放器不再按住，直到它被停止。單支影片下載改成先從附近的資料物件找網址，沒播放過的影片也能下載。
 - **作者資訊**：呼叫 Threads 自己的 `BKSharedAsyncActionDataFetcher`，以 `com.bloks.www.text_post_app.about_this_profile_async_action` 取得「關於此個人檔案」，從回傳的 Bloks 版面中解析國家（`about_this_profile_country` 狀態）與「已加入」欄位。請求需要一個帶登入身分的 `BKObjectSet`：啟動時記下 `IGUserSession` 與 `PNPandoGraphQLService`，自行組成（含 `IGSessionContext`），首次嘗試若閃退會自動停用，改為借用 Threads 開啟 Bloks 頁面時建立的物件集。作者 ID 取自 `BCNFeedItemHeaderProfilePicture` 的 Swift `userPk`。速率限制保護：一次一位、間隔 1.5 秒、排隊上限 10、每次啟動最多 400 次；收到 429、`feedback_required`、spam 等回應時暫停 1 小時；有地點的結果快取 21 天，沒有的 1 天。另起一行顯示：在 `BCNFeedSectionController` 建立名稱列 cell 時記下列位置，於 `sizeForItemAtIndex:` 加上一行高度後重新排版。
 - **隱藏追蹤對象建議**：`BCNUserRecommendationsViewController` 以彈出方式出現時攔截 `presentViewController:`；推入的頁面不受影響。
-- **隱藏 Instagram 聯繫對象**：以相同方式攔截 `BCNRecommendedAccountsViewController`（「追蹤你的 Instagram 聯繫對象」）。
+- **隱藏 Instagram 聯繫對象**：以相同方式攔截 `BCNRecommendedAccountsViewController` 、`BCNFollowListPrefollowViewController` 與 `BCNPrefollowing` 畫面（「追蹤你的 Instagram 聯繫對象」）。
 - **停用音樂自動播放**：串文音樂由 `IGAudioPlayer`／`IGStatelessAudioPlayer` 播放。除非剛點選音樂列，否則攔下 `startPlaybackWith:`；點選後立即開啟喇叭（`setAudioEnabled:with:`）時，以原本的播放原因啟動被攔下的播放器。
 - **背景圖**：長按 `BCNProfileCoverPhotoView`，從其 `BCNCoverPhotoView` → `IGImageView.imageSpecifier` 取得網址，取不到時改存畫面上的圖片。
 - **檔名與發文時間**：發文時間由串文代碼推算（Threads 的 ID 為自 2011-08-24 21:07:01.721 UTC 起的毫秒數左移 23 位元），並透過 `PHAssetCreationRequest` 設定 `originalFilename` 與 `creationDate`。
@@ -301,6 +301,8 @@ Threads 更新後，部分功能可能會暫時失效（不會閃退）。開啟
 ### 致謝
 
 「作者資訊」（在動態顯示所在地點、加入時間與新帳號標記）參考 meettomorrow 的 [lee-su-threads](https://github.com/meettomorrow/lee-su-threads)（MIT 授權）。程式碼為 ThreadsPulse 自行撰寫，但沿用該專案的做法（標籤解析、快取期限、1 小時速率限制暫停），以及其預設名稱判斷規則與動物字詞表。授權全文附於 `ThirdPartyLicenses/lee-su-threads.txt`。
+
+越南文翻譯：Tran Binh。
 
 ## 免責聲明
 

@@ -1,0 +1,609 @@
+/* Chung */
+
+/* - Cài đặt */
+"Done" = "Xong";
+"Ask" = "Hỏi";
+
+/* - Thông báo */
+"Copy" = "Sao chép";
+"Close" = "Đóng";
+"Download" = "Tải xuống";
+"Cancel" = "Hủy";
+"Open" = "Mở";
+
+/* Trang chính cài đặt & màu chủ đề */
+
+"Theme" = "Màu chủ đề";
+"Language" = "Ngôn ngữ";
+"Follow System" = "Theo hệ thống";
+"Running · %ld features on" = "Đang hoạt động · Đã bật %ld tính năng";
+"Coral" = "San hô";
+"Ocean" = "Đại dương";
+"Mint" = "Bạc hà";
+"Lavender" = "Oải hương";
+"Sakura" = "Hoa anh đào";
+"Amber" = "Hổ phách";
+
+/* Quảng cáo & quyền riêng tư */
+
+/* - Cài đặt */
+"Ads & Privacy" = "Quảng cáo & quyền riêng tư";
+"Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "Bật hoặc tắt chặn quảng cáo sẽ có hiệu lực sau khi làm mới bảng tin hoặc khởi động lại app.";
+"Block Ads" = "Chặn quảng cáo";
+"Hide sponsored posts in the feed" = "Ẩn bài viết được tài trợ trong bảng tin";
+"Block Screenshot Detection" = "Tắt phát hiện chụp màn hình";
+"Threads won't know when you take a screenshot or record the screen" = "Khi chụp hoặc quay màn hình, Threads sẽ không phát hiện được";
+"Block Analytics" = "Chặn gửi phân tích";
+"Stop Threads from sending usage data such as what you view, how long you stay and what you tap. Recommendations may become less accurate" = "Không gửi dữ liệu sử dụng như nội dung đã xem, thời gian xem và lượt chạm, nội dung đề xuất có thể kém chính xác hơn";
+"Remove URL Tracking" = "Xóa mã theo dõi URL";
+"Automatically strip xmt, igshid, utm_* and more when copying, sharing or opening links" = "Tự động xóa các tham số theo dõi như xmt, igshid, utm_* khi sao chép, chia sẻ hoặc mở liên kết";
+"Hide Buttons in Screenshots" = "Ẩn nút tiện ích khi chụp màn hình";
+"ThreadsPulse buttons don't appear in screenshots or screen recordings" = "Khi chụp hoặc quay màn hình, các nút của ThreadsPulse sẽ không xuất hiện";
+
+/* - Thông báo */
+"Blocked an ad request" = "Đã chặn một yêu cầu quảng cáo";
+"Dropped sponsored items" = "Đã loại bỏ mục được tài trợ";
+"Blocked ad insertion" = "Đã chặn chèn quảng cáo";
+"Cleaned tracking from copied link" = "Đã xóa mã theo dõi khỏi liên kết đã sao chép";
+"Screenshot detection blocked" = "Đã chặn phát hiện chụp màn hình";
+
+/* Tải phương tiện */
+
+/* - Cài đặt */
+"Media Download" = "Tải phương tiện";
+"Download Options" = "Tùy chọn tải xuống";
+"Video Downloads" = "Video";
+"Photo Downloads" = "Ảnh";
+"Download Button" = "Nút tải xuống";
+"Shows a download button on posts. Tap to download all photos and videos; long-press to download only photos or only videos." = "Chạm để tải tất cả ảnh và video, nhấn giữ để chọn chỉ tải ảnh hoặc chỉ tải video";
+"Save to \"Threads\" Album" = "Lưu vào album “Threads”";
+"Downloaded items are also added to a \"Threads\" album in Photos. Full Photos access is required the first time." = "Các mục đã tải sẽ được thêm vào album “Threads”, lần đầu cần cấp quyền truy cập Ảnh “đầy đủ”";
+"Video Quality" = "Chất lượng video";
+"Highest" = "Cao nhất";
+"Highest downloads videos at up to 1080p; some videos are converted on the device, which takes a few seconds. 720p is the fastest and needs no conversion." = "Chất lượng “Cao nhất” lên đến 1080p, một số video cần chuyển đổi vài giây\n“720p” tải trực tiếp, nhanh nhất";
+"Video Format" = "Định dạng video";
+"Keep HDR" = "Giữ HDR";
+"Compatible" = "Ưu tiên tương thích";
+"Keep HDR preserves the original brightness and color. Compatible converts to H.264 (SDR), suited to sharing on LINE, Windows or older devices." = "“Giữ HDR” duy trì độ sáng và màu sắc gốc\n“Ưu tiên tương thích” chuyển sang H.264 (SDR), phù hợp để chia sẻ qua LINE, Windows hoặc thiết bị cũ";
+"Download Original Size" = "Tải ảnh kích thước gốc";
+"Retrieves the highest resolution from the web version. If unavailable, the standard size is downloaded." = "Lấy độ phân giải cao nhất từ phiên bản web, nếu không lấy được sẽ chuyển sang kích thước thường";
+"Download Original Profile Pictures" = "Tải ảnh đại diện kích thước gốc";
+"To save, long-press a profile picture on a profile, or view it full screen and tap ↓ in the bottom-right corner." = "Để lưu, nhấn giữ ảnh đại diện trên trang cá nhân, hoặc xem toàn màn hình rồi chạm ↓ ở góc dưới bên phải";
+
+/* - Thông báo */
+"Photo %ld" = "Ảnh %ld";
+"Video %ld" = "Video %ld";
+"Photos %ld–%ld" = "Ảnh %ld–%ld";
+"Videos %ld–%ld" = "Video %ld–%ld";
+"Saved" = "Đã lưu";
+"Failed" = "Thất bại";
+"Waiting" = "Đang chờ";
+"%ld items done" = "Đã xong %ld mục";
+"%ld failed" = "%ld thất bại";
+"%ld more posts waiting" = "Còn %ld bài viết đang chờ";
+"Cancel Download" = "Hủy tải xuống";
+"Cancel All" = "Hủy tất cả";
+"Added to download queue" = "Đã thêm vào hàng đợi tải";
+"Choose video quality" = "Chọn chất lượng video";
+"Highest (%@)" = "Chất lượng cao nhất (%@)";
+"720p (faster)" = "720p (nhanh hơn)";
+"Waiting for downloads…" = "Đang chờ tải xuống…";
+"Downloading…" = "Đang tải…";
+"Photos access needed to add to the Threads album" = "Cần quyền truy cập Ảnh đầy đủ để lưu vào album Threads";
+"Photos access denied — choose where to save" = "Chưa có quyền truy cập Ảnh, vui lòng chọn nơi lưu";
+"Download failed, please try again later" = "Tải xuống thất bại, vui lòng thử lại sau";
+"Saved %ld, failed %ld" = "Đã lưu %ld, thất bại %ld";
+"Saved to Photos" = "Đã lưu vào app Ảnh";
+"Saved %ld items to Photos" = "Đã lưu %ld mục vào app Ảnh";
+"Video stream" = "Hình ảnh";
+"Audio stream" = "Âm thanh";
+"Merging video and audio…" = "Đang ghép hình và tiếng…";
+"Converting video…" = "Đang chuyển đổi video…";
+"Paused — continues when you return to Threads" = "Đã tạm dừng, sẽ tiếp tục khi bạn quay lại Threads";
+"No download link found. Play the video for a moment, then try again." = "Không tìm thấy liên kết tải. Hãy để video phát một lúc rồi thử lại.";
+"Download button added" = "Đã thêm nút tải xuống";
+"Found %ld of %ld items" = "Đã tìm thấy %ld/%ld mục";
+"Getting original photos…" = "Đang lấy ảnh gốc…";
+"No media found" = "Không tìm thấy ảnh hoặc video";
+"%ld items skipped (no download link)" = "Đã bỏ qua %ld mục (không có liên kết tải)";
+"Download All Media" = "Tải tất cả ảnh và video";
+"Download Images Only" = "Chỉ tải ảnh";
+"Download Videos Only" = "Chỉ tải video";
+"No image found" = "Không tìm thấy ảnh";
+"Download This Image" = "Tải ảnh này";
+"Download All Images in Post" = "Tải tất cả ảnh trong bài viết";
+"Download This Video" = "Tải video này";
+"Download All Videos in Post" = "Tải tất cả video trong bài viết";
+"No video found" = "Không tìm thấy video";
+"Getting original photo…" = "Đang lấy ảnh gốc…";
+"Save Profile Picture" = "Lưu ảnh đại diện";
+
+/* Trình phát */
+
+/* - Cài đặt */
+"Player" = "Trình phát";
+"Videos play at the selected speed, and return to it after you release a long-press 2x." = "Video sẽ phát ở tốc độ đã chọn và quay về tốc độ này sau khi bạn thả tay khỏi thao tác nhấn giữ 2x.";
+"Disable Autoplay" = "Tắt tự động phát";
+"Videos in the feed won't play until you tap them" = "Video trong bảng tin sẽ không tự phát, chạm vào mới bắt đầu phát";
+"Default Playback Speed" = "Tốc độ phát mặc định";
+
+/* - Thông báo */
+"Playback allowed" = "Đã cho phép phát";
+"Autoplay blocked" = "Đã chặn tự động phát";
+"Tap: no video player found" = "Chạm: không tìm thấy trình phát video";
+"Tap: replaying video" = "Chạm: đang phát lại video";
+"Tap: video is playing" = "Chạm: video đã bắt đầu phát";
+"Tap: video still not playing" = "Chạm: video vẫn chưa phát";
+
+/* Bảng tin trang chủ */
+
+/* - Cài đặt */
+"Home Feed" = "Bảng tin trang chủ";
+"With everything here turned on, new posts only load after you fully close and reopen Threads." = "Khi bật tất cả các mục trên, bài viết mới chỉ được tải sau khi bạn đóng hẳn và mở lại Threads.";
+"Keep Feed Position" = "Giữ vị trí bảng tin";
+"Coming back from the background won't refresh the home feed, jump to the top or switch tabs" = "Khi quay lại từ nền, bảng tin trang chủ sẽ không làm mới, không nhảy lên đầu và không chuyển tab";
+"Keep For" = "Thời gian giữ";
+"10 min" = "10 phút";
+"30 min" = "30 phút";
+"No Limit" = "Không giới hạn thời gian";
+"Come back within this time to keep your place; after that, the feed refreshes as usual" = "Quay lại trong khoảng thời gian này sẽ giữ nguyên vị trí, quá thời gian thì bảng tin làm mới như bình thường";
+"Disable Pull to Refresh" = "Tắt kéo xuống để làm mới";
+"Pulling down at the top of the home feed won't refresh it, and the feed stops at the top without bouncing" = "Khi kéo xuống ở đầu bảng tin trang chủ, sẽ không làm mới và cũng không bị nảy lại";
+"Mute Refresh Sound" = "Tắt âm thanh làm mới";
+"No sound when the home feed refreshes, even if Threads turns its own sound setting back on" = "Không phát âm thanh khi làm mới bảng tin, kể cả khi Threads tự bật lại cài đặt âm thanh";
+"When Tapping the Home Tab" = "Khi chạm tab Trang chủ";
+"Don't Scroll to Top" = "Không cuộn lên đầu";
+"When you're scrolled down the home feed, tapping the Home tab won't jump back to the top, so you stay where you were" = "Khi chạm tab Trang chủ sẽ giữ nguyên vị trí hiện tại, không nhảy lên đầu";
+"Don't Refresh" = "Không làm mới";
+"When you're already at the top of the home feed, tapping the Home tab won't refresh or load new posts" = "Khi đang ở đầu bảng tin trang chủ, chạm tab Trang chủ sẽ không làm mới hay tải bài viết mới";
+
+/* - Thông báo */
+"Feed position kept" = "Đã giữ vị trí bảng tin";
+"Scroll to top blocked" = "Đã chặn cuộn lên đầu";
+"Home tab refresh blocked" = "Đã chặn làm mới khi chạm tab Trang chủ";
+"Pull to refresh blocked" = "Đã chặn kéo xuống để làm mới";
+
+/* Thông tin tác giả */
+
+/* - Cài đặt */
+"Author Info" = "Thông tin tác giả";
+"Show Author Info" = "Hiện thông tin tác giả";
+"Shows details from the author's \"About this profile\" with their name in the feed." = "Hiện thông tin từ “Giới thiệu về trang cá nhân này” bên cạnh tên tác giả trong bảng tin";
+"Location Stats" = "Thống kê vị trí";
+"See which countries and regions the authors you've read are from." = "Xem các tác giả bạn đã đọc đến từ những quốc gia và khu vực nào";
+"Read Automatically" = "Tự động đọc mục";
+"Location" = "Vị trí";
+"The country or region where the account is based, shown with its flag. Shows \"Not shared\" if the author keeps it private." = "Quốc gia hoặc khu vực của tài khoản kèm quốc kỳ, nếu không công khai sẽ hiện “Không chia sẻ”";
+"Join Date" = "Thời gian tham gia";
+"The month the account joined Threads." = "Tháng và năm tài khoản tham gia Threads";
+"Join Number" = "Số thứ tự tham gia";
+"Shows which user number the account was when it joined, such as #7,551,963 or 100M+." = "Người dùng thứ mấy tham gia Threads, ví dụ #7,551,963 hoặc 100 triệu+";
+"New Account Badge" = "Huy hiệu tài khoản mới";
+"Marks accounts that joined within the last 2 months." = "Đánh dấu các tài khoản tham gia trong 2 tháng gần đây";
+"Default Name Badge" = "Huy hiệu tên mặc định";
+"Marks accounts that never changed the username Threads assigned at sign-up, such as camel.253044. This doesn't mean the account is fake." = "Đánh dấu các tài khoản vẫn dùng tên người dùng ngẫu nhiên do hệ thống cấp (như camel.253044), không có nghĩa là tài khoản giả";
+"Layout" = "Bố cục";
+"Show on Its Own Line" = "Hiện ở dòng riêng";
+"Adds a line under the name so the info always shows in full. When off, it sits next to the name and is shortened or hidden if there isn't enough room." = "Bật: hiện ở dòng riêng bên dưới tên, hiển thị đầy đủ\nTắt: hiện cạnh tên, rút gọn hoặc ẩn khi không đủ chỗ";
+"Read Status & Cache" = "Trạng thái đọc & bộ nhớ đệm";
+"See how many authors are cached and whether reading is paused, or clear the cache." = "Xem số lượng đã lưu đệm và trạng thái đọc, hoặc xóa bộ nhớ đệm";
+"To avoid limits from Threads, authors are read one at a time and cached for up to 21 days, pausing for 1 hour when needed. Layout changes apply as you scroll." = "Để tránh bị Threads giới hạn, thông tin tác giả được đọc lần lượt và lưu đệm tối đa 21 ngày, tự động tạm dừng 1 giờ khi cần. Cài đặt bố cục sẽ được áp dụng khi bạn cuộn.";
+
+/* - Thông báo */
+"Not shared" = "Không chia sẻ";
+"%lu authors · %lu countries or regions" = "%lu tác giả · %lu quốc gia hoặc khu vực";
+"Counts the authors currently cached (kept for up to 21 days)." = "Thống kê các tác giả đang được lưu đệm (giữ tối đa 21 ngày).";
+"No author info yet. Browse the feed and it will appear here." = "Chưa có thông tin tác giả, lướt bảng tin là thông tin sẽ hiện ở đây.";
+"Tap an author to open their profile." = "Chạm vào tác giả để mở trang cá nhân của họ.";
+"User ID" = "ID người dùng";
+"Default Name" = "Tên mặc định";
+"NEW" = "MỚI";
+"%lu authors cached · %lu read since launch" = "Đã lưu đệm %lu tác giả · đã đọc %lu lần kể từ khi mở app";
+"Paused by rate limit protection, resumes in %ld min" = "Đang tạm dừng do bảo vệ giới hạn tốc độ, sẽ tiếp tục sau %ld phút";
+"Reading normally" = "Đang đọc bình thường";
+"Resume Now" = "Tiếp tục ngay";
+"Clear Cache" = "Xóa bộ nhớ đệm";
+"Cache cleared" = "Đã xóa bộ nhớ đệm";
+"Open anyone's \"About this profile\" once to start showing author info." = "Mở “Giới thiệu về trang cá nhân này” của bất kỳ ai một lần để bắt đầu hiển thị thông tin tác giả.";
+"Threads asked to slow down. Author info paused for 1 hour." = "Threads yêu cầu giảm tốc độ, thông tin tác giả đã tạm dừng đọc trong 1 giờ.";
+
+/* Mục đã ẩn */
+
+/* - Cài đặt */
+"Hidden Items" = "Mục đã ẩn";
+"Suggested Content" = "Nội dung gợi ý";
+"Interface Buttons" = "Nút giao diện";
+"Suggested Accounts" = "Tài khoản gợi ý";
+"Hide \"Suggested for you\" in the feed & on profiles" = "Ẩn “Gợi ý cho bạn” trong bảng tin và trang cá nhân";
+"Search Suggestions" = "Gợi ý ở trang tìm kiếm";
+"Hide \"Suggested to follow\" on the search page" = "Ẩn “Gợi ý theo dõi” ở trang tìm kiếm";
+"Follow Suggestion Pop-ups" = "Gợi ý theo dõi";
+"Stop \"Follow suggestions\" from popping up automatically" = "Không tự động hiện “Gợi ý theo dõi” nữa";
+"Instagram Connections Pop-ups" = "Gợi ý kết nối Instagram";
+"Stop \"Follow your Instagram connections\" from popping up automatically" = "Không tự động hiện “Theo dõi các kết nối Instagram của bạn” nữa";
+"Post Interest Prompts" = "Hỏi mức quan tâm bài viết";
+"Stop asking if you're interested in posts" = "Không hỏi bạn có quan tâm bài viết hay không nữa";
+"Search Button" = "Nút tìm kiếm";
+"Hide the search button on profiles" = "Ẩn nút tìm kiếm trên trang cá nhân";
+"Instagram Button" = "Nút Instagram";
+"Hide the Instagram button on profiles" = "Ẩn nút Instagram trên trang cá nhân";
+
+/* - Thông báo */
+"Follow suggestions hidden" = "Đã ẩn gợi ý theo dõi";
+
+/* Liên kết */
+
+/* - Cài đặt */
+"Links" = "Liên kết";
+"Auto-open reads the clipboard directly. If iOS asks to allow pasting every time, go to Settings › Threads › Paste from Other Apps and choose Allow." = "Tự động mở sẽ đọc trực tiếp bộ nhớ tạm. Nếu iOS cứ hỏi cho phép dán mỗi lần, hãy vào Cài đặt › Threads › Dán từ ứng dụng khác và chọn Cho phép.";
+"Detect Copied Links" = "Phát hiện liên kết trong bộ nhớ tạm";
+"When you come back or switch accounts, detect a copied Threads link and open it" = "Khi quay lại Threads hoặc chuyển tài khoản, phát hiện liên kết Threads trong bộ nhớ tạm và mở nó";
+"When a Link Is Found" = "Khi phát hiện liên kết";
+"Auto-open" = "Tự động mở";
+"Prompt Position" = "Vị trí gợi ý";
+"Top" = "Trên";
+"Middle" = "Giữa";
+"Bottom" = "Dưới";
+"Open Links in External Browser" = "Mở liên kết bằng trình duyệt ngoài";
+"Links in posts and bios open in Safari (or your default browser) instead of the in-app browser. Threads links still open in the app" = "Liên kết trong bài viết và tiểu sử sẽ mở bằng Safari hoặc trình duyệt mặc định, liên kết Threads vẫn mở trong app";
+
+/* - Thông báo */
+"Opened link from clipboard" = "Đã mở liên kết từ bộ nhớ tạm";
+"The copied link isn't a Threads link" = "Liên kết trong bộ nhớ tạm không phải liên kết Threads";
+"Link copied" = "Bộ nhớ tạm có liên kết";
+"Account switched" = "Đã chuyển tài khoản";
+
+/* Tin nhắn */
+
+/* - Cài đặt */
+"Messages" = "Tin nhắn";
+"Hide Seen Status" = "Ẩn trạng thái đã xem";
+"Viewing messages won't notify the other person. To show \"Seen\" normally in a specific chat, tap the eye icon at the top right of that chat." = "Xem tin nhắn sẽ không thông báo cho đối phương, nếu muốn một cuộc trò chuyện hiện “Đã xem”, hãy chạm biểu tượng con mắt ở góc trên bên phải";
+"Show Seen When You Reply" = "Hiện đã xem sau khi trả lời";
+"Let the other person see \"Seen\" once you reply" = "Bật: sau khi bạn trả lời, đối phương mới thấy “Đã xem”\nTắt: dù bạn có trả lời, đối phương cũng không thấy “Đã xem”";
+"Reset Chats" = "Đặt lại cuộc trò chuyện";
+"Chats where you tapped the eye to show \"Seen\" go back to hiding it" = "Các cuộc trò chuyện bạn đã chạm biểu tượng con mắt để hiện “Đã xem” sẽ quay lại trạng thái ẩn";
+"Hide Typing Status" = "Ẩn trạng thái đang nhập";
+"The other person won't see \"typing…\" while you write a message" = "Khi bạn soạn tin nhắn, đối phương sẽ không thấy chỉ báo “đang nhập…”";
+"Keep Unsent Messages" = "Giữ tin nhắn bị thu hồi";
+"When someone unsends a message, it stays in your chat marked \"Unsent\"" = "Khi đối phương thu hồi tin nhắn, tin nhắn vẫn được giữ trong cuộc trò chuyện và đánh dấu “Đã thu hồi”";
+"No chats set to show Seen" = "Không có cuộc trò chuyện nào được đặt hiện “Đã xem”";
+"%lu chats will hide \"Seen\" again" = "%lu cuộc trò chuyện sẽ ẩn “Đã xem” trở lại";
+"All chats hide Seen" = "Tất cả cuộc trò chuyện đều ẩn “Đã xem”";
+
+/* - Thông báo */
+"Seen sent" = "Đã gửi “Đã xem”";
+"Seen status blocked" = "Đã chặn “Đã xem”";
+"Seen sent first, message follows" = "Gửi “Đã xem” trước, tin nhắn gửi sau";
+"This chat shows Seen" = "Cuộc trò chuyện này hiện “Đã xem”";
+"This chat hides Seen" = "Cuộc trò chuyện này ẩn “Đã xem”";
+"Seen for This Chat" = "“Đã xem” của cuộc trò chuyện này";
+"Couldn't find this chat" = "Không tìm thấy cuộc trò chuyện này";
+"Typing status blocked" = "Đã chặn “Đang nhập”";
+"Unsent" = "Đã thu hồi";
+"Unsent message kept" = "Đã giữ tin nhắn bị đối phương thu hồi";
+
+/* Giao diện & tương tác */
+
+/* - Cài đặt */
+"Interface & Interactions" = "Giao diện & tương tác";
+"3h" = "3 giờ";
+"Example: %@" = "Ví dụ: %@";
+"Like Confirmation" = "Xác nhận thích";
+"Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "Hiện xác nhận trước khi thích để tránh chạm nhầm, bỏ thích sẽ không hỏi";
+"Post Time Format" = "Định dạng thời gian bài viết";
+"Relative" = "Thời gian tương đối";
+"Date & Time" = "Ngày giờ";
+"With Year" = "Có năm";
+"With Seconds" = "Có giây";
+"Keep Tab Bar Visible" = "Cố định thanh tab phía dưới";
+"Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "Khi cuộn, thanh tab phía dưới sẽ không tự ẩn";
+"Copy Profile Info" = "Sao chép thông tin trang cá nhân";
+"On a profile, long-press the name, username, bio or profile picture to copy the name, username or bio" = "Trên trang cá nhân, nhấn giữ tên, tên người dùng, tiểu sử hoặc ảnh đại diện để sao chép thông tin liên quan";
+"Long-Press Home Tab for Settings" = "Nhấn giữ tab Trang chủ để mở cài đặt";
+"Long-pressing the Home tab at the bottom opens ThreadsPulse settings instead" = "Khi nhấn giữ tab Trang chủ ở phía dưới, sẽ mở cài đặt ThreadsPulse";
+
+/* - Thông báo */
+"Like confirmation shown" = "Đã hiện xác nhận thích";
+"Like this post?" = "Thích bài viết này?";
+"Like" = "Thích";
+"Copied" = "Đã sao chép";
+"Copy Name" = "Sao chép tên";
+"Copy Username" = "Sao chép tên người dùng";
+"Copy Bio" = "Sao chép tiểu sử";
+"Long-press tab" = "Nhấn giữ tab";
+"feature is off" = "tính năng chưa bật";
+"Home tab" = "Tab Trang chủ";
+"not the Home tab" = "không phải tab Trang chủ";
+
+/* Sao lưu */
+
+"Backup" = "Sao lưu";
+"Export Settings" = "Xuất cài đặt";
+"Import Settings" = "Nhập cài đặt";
+"Export failed" = "Xuất thất bại";
+"Invalid settings file" = "Tệp cài đặt không hợp lệ";
+"Imported %ld settings" = "Đã nhập %ld cài đặt";
+
+/* Nâng cao */
+
+/* - Cài đặt */
+"Advanced" = "Nâng cao";
+"Debug Hints" = "Gợi ý gỡ lỗi";
+"Turn on when a feature stops working. Hints show which features are active, to help report problems." = "Bật khi tính năng hoạt động bất thường, màn hình sẽ hiện trạng thái hoạt động của từng tính năng để tiện báo lỗi";
+"Analytics Log" = "Nhật ký phân tích";
+"Shows the usage data Threads collects and what it contains. The log never leaves your device" = "Hiện nhật ký sử dụng mà Threads thu thập và nội dung của nó, nhật ký không rời khỏi điện thoại của bạn";
+"Welcome Screen" = "Màn hình chào mừng";
+"See how to open ThreadsPulse settings again" = "Xem lại cách mở cài đặt tiện ích";
+"Keeps you signed in and app group data working after re-signing. Only active on re-signed apps; takes effect after reopening Threads" = "Giữ trạng thái đăng nhập và dữ liệu app group sau khi ký lại, chỉ có hiệu lực với app đã ký lại, cần mở lại Threads sau khi thay đổi";
+"No analytics recorded yet" = "Hiện chưa có nhật ký phân tích";
+
+/* - Thông báo */
+"Diagnostics" = "Thông tin chẩn đoán";
+"Top Events" = "Xếp hạng sự kiện";
+"Block Analytics: On" = "Chặn gửi phân tích: Bật";
+"Block Analytics: Off" = "Chặn gửi phân tích: Tắt";
+"Nothing below was sent" = "Toàn bộ nội dung bên dưới chưa được gửi";
+"Everything below was sent" = "Toàn bộ nội dung bên dưới đã được gửi";
+"%lu events while using the app (%lu types)" = "%lu sự kiện trong lúc dùng app (%lu loại)";
+"…and %lu more types" = "…và %lu loại khác";
+"Unknown" = "Không xác định";
+"%@ times" = "%@ lần";
+"Recent Events" = "Sự kiện gần đây";
+"Latest one of each type" = "Chỉ hiện mục mới nhất của mỗi loại sự kiện";
+"Contains your user ID and post IDs. Check before sharing." = "Nội dung có chứa ID người dùng và ID bài viết của bạn, hãy kiểm tra trước khi chia sẻ.";
+"Sideload Compatibility Fix" = "Sửa tương thích khi cài ngoài";
+"Last session" = "Phiên gần nhất";
+"Analytics blocked last session" = "Phân tích đã chặn ở phiên trước";
+
+/* Ủng hộ & giới thiệu */
+
+"Donate" = "Ủng hộ";
+"Your support keeps ThreadsPulse updated. Thank you!" = "Sự ủng hộ của bạn là động lực để ThreadsPulse tiếp tục được cập nhật, cảm ơn bạn!";
+"Buy Me a Coffee" = "Mời tôi một ly cà phê";
+"Support ThreadsPulse on Ko-fi" = "Ủng hộ ThreadsPulse trên Ko-fi";
+"About" = "Giới thiệu";
+"Version" = "Phiên bản";
+"Environment" = "Môi trường";
+"Copy All Info" = "Sao chép toàn bộ thông tin";
+"Source Code on GitHub" = "Mã nguồn trên GitHub";
+"Report a Problem" = "Báo cáo sự cố trên GitHub";
+"Author Info draws on lee-su-threads (MIT)" = "Thông tin tác giả tham khảo lee-su-threads (MIT)";
+"Threads Version" = "Phiên bản Threads";
+"Bundle ID" = "Bundle ID";
+"Device" = "Thiết bị";
+"iOS Version" = "Phiên bản iOS";
+"Reset All Settings" = "Đặt lại tất cả cài đặt";
+"Reset All Settings?" = "Đặt lại tất cả cài đặt?";
+"Reset" = "Đặt lại";
+
+/* Màn hình chào mừng */
+
+"How to Open Settings" = "Cách mở cài đặt tiện ích";
+"From Threads Settings" = "Từ cài đặt của Threads";
+"Open Threads settings, then tap “Pulse” at the top right" = "Mở cài đặt của Threads, rồi chạm “Pulse” ở góc trên bên phải";
+"Three-Finger Long Press" = "Nhấn giữ ba ngón";
+"Press anywhere with three fingers for 1 second" = "Dùng ba ngón tay nhấn giữ 1 giây ở bất kỳ màn hình nào";
+"Long-Press the Home Tab" = "Nhấn giữ tab Trang chủ";
+"Long-press the Home tab at the bottom" = "Nhấn giữ tab Trang chủ ở phía dưới";
+"You can see this screen again under Advanced" = "Sau này bạn có thể xem lại màn hình này trong mục “Nâng cao” của cài đặt tiện ích";
+"Open ThreadsPulse Settings" = "Mở cài đặt tiện ích";
+"Maybe Later" = "Để sau";
+"Welcome to ThreadsPulse" = "Chào mừng đến với ThreadsPulse";
+"ThreadsPulse is installed and running" = "Tiện ích đã được cài đặt và bắt đầu hoạt động";
+"What's New" = "Tính năng mới";
+"See what's new in this version" = "Xem tính năng mới của phiên bản này";
+"What's New in ThreadsPulse %@" = "Tính năng mới của ThreadsPulse %@";
+"Updated to the latest version" = "Đã cập nhật lên phiên bản mới nhất";
+"Get Started" = "Bắt đầu";
+
+/* Cập nhật */
+"Check for Updates Automatically" = "Tự động kiểm tra cập nhật";
+"Checks GitHub once a day and lets you know when a new version is out" = "Kiểm tra GitHub mỗi ngày một lần và báo cho bạn khi có phiên bản mới";
+"Check for Updates" = "Kiểm tra cập nhật";
+"Checking for updates…" = "Đang kiểm tra cập nhật…";
+"Couldn't check for updates. Try again later." = "Không thể kiểm tra cập nhật, vui lòng thử lại sau";
+"You're on the latest version" = "Bạn đang dùng phiên bản mới nhất";
+"ThreadsPulse %@ Is Available" = "ThreadsPulse %@ đã ra mắt";
+"You're on %@" = "Phiên bản hiện tại: %@";
+"Skip This Version" = "Bỏ qua phiên bản này";
+"Later" = "Để sau";
+
+/* Trình quản lý tải xuống */
+"Download Manager" = "Trình quản lý tải xuống";
+"Keep Copies in ThreadsPulse" = "Giữ bản sao trong ThreadsPulse";
+"Downloaded files are also kept here, so you can preview, share or save them again. Uses storage on your iPhone." = "Các tệp đã tải cũng được lưu thêm một bản trong thư viện để xem trước, chia sẻ hoặc lưu lại · Sẽ chiếm dung lượng iPhone";
+"Downloading" = "Đang tải";
+"Queue" = "Hàng đợi";
+"Paused" = "Đã tạm dừng";
+"Library" = "Thư viện";
+"Off" = "Tắt";
+"Pause Queue" = "Tạm dừng hàng đợi";
+"Resume Queue" = "Tiếp tục hàng đợi";
+"Reorder Queue" = "Sắp xếp lại hàng đợi";
+"Retry All Failed" = "Thử lại tất cả";
+"Retry Failed Items" = "Thử lại mục thất bại";
+"Retry" = "Thử lại";
+"Download Again" = "Tải lại";
+"Open Post" = "Mở bài viết";
+"Delete Record" = "Xóa bản ghi";
+"Remove from Queue" = "Xóa khỏi hàng đợi";
+"Clear History" = "Xóa lịch sử tải";
+"Clear History?" = "Xóa lịch sử tải xuống?";
+"Files kept in the Library are deleted too. Photos is not affected." = "Các bản sao trong thư viện cũng sẽ bị xóa, app Ảnh không bị ảnh hưởng";
+"Clear" = "Xóa";
+"Delete" = "Xóa";
+"Delete All Files" = "Xóa tất cả tệp";
+"Delete All Files?" = "Xóa tất cả tệp?";
+"Download history stays. Photos is not affected." = "Lịch sử tải xuống sẽ được giữ lại, app Ảnh không bị ảnh hưởng";
+"Cancelled" = "Đã hủy";
+"No downloads yet" = "Chưa có lịch sử tải";
+"Downloads appear here, including failed ones you can retry." = "Các bài viết đã tải sẽ hiển thị ở đây, mục thất bại cũng có thể thử lại";
+"No files yet" = "Chưa có tệp";
+"Turn on Keep Copies to save files here as you download." = "Bật “Giữ bản sao” để các tệp đã tải được lưu ở đây";
+"The queue is paused. The current download finishes first." = "Hàng đợi đã tạm dừng, lượt tải hiện tại sẽ hoàn tất trước.";
+"Download links can expire after a few days. If retrying fails, open the post and download it again." = "Liên kết tải có thể hết hạn sau vài ngày. Nếu thử lại vẫn thất bại, hãy mở bài viết và tải lại.";
+"Added to queue (paused)" = "Đã thêm vào hàng đợi (hàng đợi đang tạm dừng)";
+"%ld items · %@" = "%ld mục · %@";
+"1 photo" = "1 ảnh";
+"%ld photos" = "%ld ảnh";
+"1 video" = "1 video";
+"%ld videos" = "%ld video";
+"Post %@" = "Bài viết %@";
+"Profile Picture" = "Ảnh đại diện";
+"Yesterday" = "Hôm qua";
+"Share" = "Chia sẻ";
+"Save to Photos" = "Lưu vào Ảnh";
+"%ld in queue" = "%ld trong hàng đợi";
+"Waiting to convert…" = "Đang chờ chuyển đổi…";
+"Today" = "Hôm nay";
+"%@ total" = "Tổng %@";
+"Video conversion finished (%ld saved)" = "Đã chuyển đổi video xong (đã lưu %ld tệp)";
+"History Retention" = "Giới hạn lưu lịch sử tải";
+"Unlimited" = "Không giới hạn";
+"50 Items" = "50 mục";
+"100 Items" = "100 mục";
+"30 Days" = "30 ngày";
+"Automatically cleans oldest download history, thumbnails & copies kept in ThreadsPulse. Never deletes files saved in Photos." = "Tự động dọn lịch sử, ảnh thu nhỏ và bản sao cũ nhất trong ThreadsPulse khi vượt giới hạn, không xóa các tệp đã lưu trong app Ảnh";
+"Content Filters" = "Bộ lọc nội dung";
+"Hide New Accounts" = "Ẩn tài khoản mới đăng ký";
+"Hide feed posts from accounts joined within the last 2 months (requires Author Info)" = "Ẩn bài viết trong bảng tin từ các tài khoản đăng ký trong vòng 2 tháng gần đây (cần bật Thông tin tác giả)";
+"Muted Keywords" = "Từ khóa đã ẩn";
+"Muted keywords saved" = "Đã lưu từ khóa ẩn";
+"Download Thread" = "Tải cả chuỗi";
+"Queued %lu media items from thread" = "Đã thêm %lu mục của cả chuỗi vào hàng đợi tải";
+"Open Profile" = "Mở trang cá nhân";
+"%lu found" = "Đã tìm thấy %lu";
+"Stop and Download Found Items" = "Dừng và tải các mục đã tìm thấy";
+"Thread Download Button" = "Nút tải cả chuỗi";
+"Adds a button to the top-right of a thread page. Tap it to collect every photo and video in the thread, replies included, and download them. Progress shows under the top bar; tap the button or the progress label while working to stop or cancel. Long-press the button to open the download manager." = "Thêm một nút ở góc trên bên phải trang thread. Chạm vào để tự động cuộn toàn bộ chuỗi, thu thập mọi ảnh và video (kể cả phản hồi) rồi tải xuống · Tiến trình hiển thị bên dưới thanh trên cùng, chạm vào nút hoặc nhãn tiến trình khi đang chạy để dừng hoặc hủy · Nhấn giữ nút để mở trình quản lý tải xuống";
+"Show" = "Hiện";
+"1 post hidden" = "Đã ẩn 1 bài viết";
+"New account" = "Tài khoản mới";
+"Keyword \"%@\"" = "Từ khóa “%@”";
+"Cleared %@ of cache" = "Đã xóa %@ bộ nhớ đệm";
+"Frees space used by images and videos. Your login and settings are kept" = "Xóa bộ nhớ đệm ảnh và video, đăng nhập và cài đặt không bị ảnh hưởng";
+"Threads closes, and the cache is cleared when you open it again." = "Threads sẽ đóng lại, việc xóa sẽ hoàn tất khi bạn mở lại.";
+"Clear and Close" = "Xóa và đóng";
+"Clear %@ of Cache?" = "Xóa %@ bộ nhớ đệm?";
+"Search settings" = "Tìm cài đặt";
+"Search Results" = "Kết quả tìm kiếm";
+"No matching settings" = "Không tìm thấy cài đặt phù hợp";
+"Search @author or post code" = "Tìm @tác giả hoặc mã bài viết";
+"All" = "Tất cả";
+"Videos" = "Video";
+"Photos" = "Ảnh";
+"Copy Post Link" = "Sao chép liên kết bài viết";
+"Post link copied" = "Đã sao chép liên kết bài viết";
+"Share Kept Files" = "Chia sẻ tệp đã giữ";
+"Reset Hit Counts" = "Đặt lại số lượt chặn";
+"Clear All Rules" = "Xóa tất cả quy tắc";
+"Clear All Rules?" = "Xóa tất cả quy tắc?";
+"No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "Chưa có quy tắc ẩn nào.\nChạm + ở góc trên bên phải để thêm từ khóa, @tài khoản hoặc /biểu thức chính quy/.";
+"Add Muted Rule" = "Thêm quy tắc ẩn";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "Hỗ trợ từ khóa thông thường, @tài khoản (ẩn tác giả) hoặc /biểu thức chính quy/";
+"e.g. giveaway, @spammer, /promo\\d+/" = "ví dụ: quảng cáo, @spammer, /bốc thăm\\d+/";
+"Add" = "Thêm";
+"Keyword" = "Từ khóa";
+"Author" = "Tài khoản";
+"Regex" = "Biểu thức chính quy";
+"%@ · %ld hits" = "%@ · %ld lượt chặn";
+"Muted %@" = "Đã ẩn %@";
+"Organize Albums by @Author" = "Chia album theo tác giả";
+"Create a separate Photos album for each @author instead of a single \"Threads\" album." = "Tạo album riêng “@tài khoản” cho từng tác giả thay vì lưu tất cả vào album “Threads”";
+"Select Text" = "Chọn văn bản";
+"Copy All" = "Sao chép tất cả";
+"Quick Translate" = "Dịch nhanh";
+"Copy Text" = "Sao chép toàn bộ văn bản";
+"Mute %@" = "Ẩn %@";
+"Mute Keyword…" = "Ẩn từ khóa…";
+"Enter a keyword from this post to mute:" = "Nhập từ khóa cần ẩn";
+"Keyword or /regex/" = "Từ khóa hoặc /biểu thức chính quy/";
+"Post Text" = "Nội dung bài viết";
+"This post has no text" = "Bài viết này không có văn bản";
+"Regex Examples" = "Ví dụ biểu thức chính quy";
+"Tap an example to add it. A regex goes between two slashes; | means \"or\"." = "Chạm vào ví dụ để thêm · Biểu thức chính quy đặt giữa hai dấu /, | nghĩa là “hoặc”.";
+"/giveaway|free gift|DM me/" = "/bốc thăm|tặng quà|tặng free/";
+"Any one of these words (| means \"or\")" = "Chứa bất kỳ từ nào: “bốc thăm”, “tặng quà”, “tặng free” (| nghĩa là “hoặc”)";
+"/DM.{0,5}(earn|income)/" = "/nhắn riêng.{0,5}(kiếm|thu nhập)/";
+"\"DM\" followed within 5 characters by \"earn\" or \"income\"" = "“nhắn riêng” kèm “kiếm” hoặc “thu nhập” trong vòng 5 ký tự";
+"/(LINE|WhatsApp)\\s*ID/" = "/(LINE|Zalo)\\s*ID/";
+"\"LINE ID\" or \"WhatsApp ID\", with or without a space" = "“LINE ID” hoặc “Zalo ID”, có hoặc không có khoảng trắng";
+"/save\\s*\\d+/" = "/giảm\\s*\\d+/";
+"\"save\" followed by a number, e.g. \"save 50\", \"save50\"" = "“giảm” kèm một con số, ví dụ “giảm 50”, “giảm50”";
+"/https?:\\/\\/\\S+/" = "/https?:\\/\\/\\S+/";
+"Posts that contain a link" = "Nội dung có chứa liên kết";
+"Already added" = "Đã được thêm trước đó";
+"Invalid regex: %@" = "Biểu thức chính quy không hợp lệ: %@";
+"Hide feed posts and replies containing these words, from these @authors or matching /regex/ patterns" = "Ẩn bài viết và phản hồi trong bảng tin có chứa các từ này, đến từ các @tài khoản này hoặc khớp mẫu /biểu thức chính quy/";
+"%lu rules" = "%lu quy tắc";
+"None" = "Chưa đặt";
+"Mute Permanently" = "Ẩn vĩnh viễn";
+"Mute for 24 Hours" = "Ẩn 24 giờ";
+"Mute for 7 Days" = "Ẩn 7 ngày";
+"%ld min left" = "còn %ld phút";
+"%ld h left" = "còn %ld giờ";
+"%ld d left" = "còn %ld ngày";
+"Hidden today: %ld" = "Hôm nay đã ẩn %ld bài";
+"Today %ld posts were hidden, most often for %@." = "Hôm nay đã ẩn %ld bài viết, lý do phổ biến nhất là %@.";
+"Today %ld posts were hidden." = "Hôm nay đã ẩn %ld bài viết.";
+"Join the Telegram Group" = "Tham gia nhóm Telegram";
+"Follow downloads, retry failed ones and browse the files you saved" = "Xem tiến trình tải, thử lại mục thất bại và duyệt các tệp đã tải";
+"Save every photo and video in a thread, replies included, with one tap" = "Tải mọi ảnh và video của cả chuỗi (kể cả phản hồi) chỉ với một chạm";
+"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "Ẩn bài viết và phản hồi theo từ khóa, @tài khoản hoặc /biểu thức chính quy/, vĩnh viễn hoặc tạm thời";
+"Post Text Menu" = "Menu nội dung bài viết";
+"Long-press “⋯” on a post to select, translate, copy or mute its text" = "Nhấn giữ “⋯” trên bài viết để chọn, dịch, sao chép nội dung hoặc ẩn";
+"New" = "Mới";
+"Show This Post" = "Hiện bài viết này";
+"Mute for 24 Hours Only" = "Đổi thành chỉ ẩn 24 giờ";
+"%@ is now muted for 24 hours" = "“%@” hiện được ẩn trong 24 giờ";
+"Manage Muted Rules" = "Quản lý quy tắc ẩn";
+"Delete This Rule" = "Xóa quy tắc này";
+"Rule deleted. Other posts it hid come back when the feed refreshes." = "Đã xóa quy tắc. Các bài viết khác bị quy tắc này ẩn sẽ xuất hiện lại sau khi làm mới.";
+"Long-press for photos only, videos only, the post text or the download manager" = "Nhấn giữ để chỉ tải ảnh hoặc video, xem nội dung bài viết hoặc mở trình quản lý tải xuống";
+"Tap to download the whole thread. Long-press for the download manager" = "Chạm một lần để tải cả chuỗi, nhấn giữ để mở trình quản lý tải xuống";
+"Long-press “⋯” to select, translate, copy or mute the post text" = "Nhấn giữ “⋯” để chọn, dịch, sao chép hoặc ẩn nội dung bài viết";
+"%ld muted rules" = "%ld quy tắc ẩn";
+"%ld authors" = "%ld tác giả";
+"Also Include When Exporting" = "Cũng bao gồm khi xuất";
+"Muted Rules" = "Quy tắc ẩn";
+"Keywords, @authors and /regex/ rules, with how long each is muted" = "Quy tắc từ khóa, @tài khoản và /biểu thức chính quy/, cùng thời hạn ẩn của từng quy tắc";
+"Authors already read, so they don't have to be read again after reinstalling" = "Các tác giả đã đọc, không cần đọc lại sau khi cài đặt lại";
+"Export your settings to a file, and import it after reinstalling or on another device." = "Xuất cài đặt thành tệp, sau khi cài lại hoặc đổi điện thoại thì nhập lại; quy tắc ẩn và thông tin tác giả sẽ được gộp với dữ liệu hiện có. Thông tin tác giả được giữ tối đa 21 ngày (nếu không có khu vực thì 1 ngày), thông tin hết hạn sẽ không được nhập, nên xuất lại một lần trước khi cài lại.";
+
+/* Tệp đã lưu */
+"Tap: playing music" = "Chạm: đang phát nhạc";
+"Disable Music Autoplay" = "Tắt tự động phát nhạc";
+"Music added to posts won't play by itself; tap the music to play it" = "Nhạc đính kèm bài viết sẽ không tự phát, chạm vào nhạc để phát";
+"Music autoplay blocked" = "Đã chặn tự động phát nhạc";
+"Save Cover Photo" = "Lưu ảnh bìa";
+"Cover Photo" = "Ảnh bìa";
+"Files are named from the post's author, time and code. The name shows in Photos info and when you share or export" = "Tên tệp gồm tác giả, thời gian và mã của bài viết, có thể thấy trong phần thông tin của app Ảnh và khi chia sẻ hoặc xuất";
+"File Name Format" = "Định dạng tên tệp";
+"Preview" = "Xem trước";
+"Parts" = "Thành phần";
+"Separator" = "Dấu phân cách";
+"Date Format" = "Định dạng ngày";
+"Tap a part to turn it on or off, and drag ≡ to change the order." = "Chạm vào thành phần để bật hoặc tắt, kéo ≡ để thay đổi thứ tự.";
+"@Author" = "@tác giả";
+"Post Date" = "Ngày đăng";
+"Post Time" = "Giờ đăng";
+"Post Code" = "Mã bài viết";
+"Number" = "Số";
+"Country" = "Quốc gia";
+"\"Threads\"" = "“Threads”";
+"Only when a post has more than one file" = "Chỉ thêm khi bài viết có nhiều tệp";
+"Only when Author Info has already read it" = "Chỉ thêm khi Thông tin tác giả đã đọc được";
+"Space" = "Khoảng trắng";
+"Reset to Default" = "Khôi phục mặc định";
+"Taiwan" = "Đài Loan";
+"Saved Files" = "Tệp đã lưu";
+"Warn About Duplicates" = "Nhắc khi tải trùng";
+"Before downloading a post that's already in the download history, ask whether to download it again" = "Trước khi tải bài viết đã có trong lịch sử tải, hỏi xem có muốn tải lại không";
+"Name Files From Post" = "Đặt tên tệp theo bài viết";
+"Use Post Time as Date" = "Dùng giờ đăng bài làm ngày";
+"Photos and videos are dated when the post was published, so they sort by post time in Photos" = "Ngày của ảnh và video sẽ được đặt theo thời điểm đăng bài, nên trong app Ảnh sẽ sắp xếp theo thời gian đăng";
+"Already Downloaded" = "Đã tải xuống";
+"This post is already in the download queue." = "Bài viết này đã có trong hàng đợi tải.";
+"You downloaded this post on %@." = "Bạn đã tải bài viết này vào %@.";
+"Open Download Manager" = "Mở trình quản lý tải xuống";

@@ -190,7 +190,7 @@ static NSString *TPTimePreview(NSInteger mode) {
         _langLabel.textColor = UIColor.secondaryLabelColor;
         [_card addSubview:_langLabel];
         // Each language is listed in its own script so anyone can find theirs.
-        NSArray<NSString *> *names = @[TPL(@"Follow System"), @"English", @"繁體中文", @"简体中文", @"日本語", @"한국어"];
+        NSArray<NSString *> *names = @[TPL(@"Follow System"), @"English", @"繁體中文", @"简体中文", @"日本語", @"한국어", @"Tiếng Việt"];
         NSInteger curLang = [TPPrefs integerForKey:TPKeyLanguage];
         if (curLang < 0 || curLang >= (NSInteger)names.count) curLang = 0;
         UIButtonConfiguration *c = [UIButtonConfiguration plainButtonConfiguration];

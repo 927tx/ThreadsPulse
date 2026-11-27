@@ -2,7 +2,7 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-An iOS tweak for Threads (`com.burbn.barcelona`). Current version: **1.32.0**
+An iOS tweak for Threads (`com.burbn.barcelona`). Current version: **1.32.1**
 
 No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using GitHub Actions, then install it with your own signing tool.
 
@@ -82,7 +82,7 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 
 **Theme**: in the info card at the top of the settings page, tap a color dot to switch (Coral / Ocean / Mint / Lavender / Sakura / Amber). It only changes the color of ThreadsPulse buttons and settings.
 
-**Language**: in the same card, choose Follow System, English, 繁體中文, 简体中文, 日本語 or 한국어. ThreadsPulse's own text switches right away; Threads itself is unaffected.
+**Language**: in the same card, choose Follow System, English, 繁體中文, 简体中文, 日本語, 한국어 or Tiếng Việt. ThreadsPulse's own text switches right away; Threads itself is unaffected.
 
 **Search Settings**: the search bar at the top of the settings page finds any setting.
 
@@ -246,9 +246,9 @@ ThreadsPulse/
 ## Localization
 
 - The code always uses `TPL(@"English text")`; **the English text is the key**, and it's shown as-is when no translation exists.
-- Included languages: English (`en`), Traditional Chinese (`zh-Hant`), Simplified Chinese (`zh-Hans`), Japanese (`ja`) and Korean (`ko`). By default the system language is used (anything else falls back to English); the Language row at the top of the settings can force one.
-- To add a language, copy `en.lproj` (for example to `fr.lproj`), translate it, add the language code to `CFBundleLocalizations` in `Info.plist`, and add it to the Language menu (`TPSettingsViewController.m`) and `TPLocalization.m`.
-- Corrections to the Simplified Chinese, Japanese and Korean translations from native speakers are welcome.
+- Included languages: English (`en`), Traditional Chinese (`zh-Hant`), Simplified Chinese (`zh-Hans`), Japanese (`ja`), Korean (`ko`) and Vietnamese (`vi`). By default the system language is used (anything else falls back to English); the Language row at the top of the settings can force one.
+- To add a language, copy `en.lproj` (for example to `fr.lproj`), translate it, add the language code to `CFBundleLocalizations` in `Info.plist`, and add it to the Language menu (`TPSettingsViewController.m`), `TPLocalization.m` and the Language limit in `TPPrefs.m`.
+- Corrections to the Simplified Chinese, Japanese, Korean and Vietnamese translations from native speakers are welcome.
 
 ## Implementation notes
 
@@ -280,7 +280,7 @@ ThreadsPulse/
 - **Disable Autoplay**: when a feed video scrolls into view (`-[IGFNFVideoPlayer playWithReason:callsiteContext:]`, reason 1), Threads is allowed to start playback as usual so its UI (including the sound icon) appears, but the underlying `FNFPlayer` is held: its first `play` runs with volume 0 so Threads reaches "initial play" and shows the sound icon, then it is paused on the first frame (`videoPlayerDidInitialPlay:`); later `play` / `playWithContext:` calls are ignored. Tapping the video (a touch that barely moved, so scrolling doesn't count) releases the hold and starts `FNFPlayer`. Other play reasons (full screen, etc.) and videos outside the feed play as usual. Once started, the same player isn't held again until it's stopped. The single-video download button now reads the URL from nearby data objects first, so videos that never played can still be downloaded.
 - **Author Info**: calls Threads' own `BKSharedAsyncActionDataFetcher` with `com.bloks.www.text_post_app.about_this_profile_async_action` to get "About this profile", then reads the country (the `about_this_profile_country` state) and the "Joined" row from the returned Bloks layout. The request needs a `BKObjectSet` that carries the signed-in session: the `IGUserSession` and `PNPandoGraphQLService` are noted at launch and assembled into one (with an `IGSessionContext`); if the first try crashes this is disabled for good and the set Threads creates when it opens a Bloks screen is borrowed instead. The author ID is the Swift `userPk` of `BCNFeedItemHeaderProfilePicture`. Rate-limit protection: one author at a time, 1.5 s apart, at most 10 queued and 400 per launch; a 429, `feedback_required` or spam response pauses reading for 1 hour; results with a location are cached for 21 days, without one for 1 day. Own line: when `BCNFeedSectionController` builds the name row's cell its row is remembered, and `sizeForItemAtIndex:` adds one line of height before the section is re-laid out.
 - **Hide Follow Suggestions**: intercepts `presentViewController:` when `BCNUserRecommendationsViewController` is presented as a sheet; pushed pages aren't affected.
-- **Hide Instagram Connections**: same approach for `BCNRecommendedAccountsViewController` ("Follow your Instagram connections").
+- **Hide Instagram Connections**: same approach for `BCNRecommendedAccountsViewController` , `BCNFollowListPrefollowViewController` and the `BCNPrefollowing` screens ("Follow your Instagram connections").
 - **Disable Music Autoplay**: post music plays through `IGAudioPlayer` / `IGStatelessAudioPlayer`. `startPlaybackWith:` is held unless the music row was just tapped; turning the speaker on (`setAudioEnabled:with:`) right after a tap starts a held player with its own start reason.
 - **Cover photo**: a long-press on `BCNProfileCoverPhotoView` reads the URL from its `BCNCoverPhotoView` → `IGImageView.imageSpecifier`, falling back to the image on screen.
 - **File names / post date**: the post time comes from the shortcode (Threads IDs are milliseconds since 2011-08-24 21:07:01.721 UTC, shifted left 23 bits); saved through `PHAssetCreationRequest` with `originalFilename` and `creationDate`.
@@ -301,6 +301,8 @@ Both are bundled as prebuilt static libraries; the exact commit and build option
 ### Acknowledgements
 
 Author Info (location, join date and new-account badge in the feed) draws on [lee-su-threads](https://github.com/meettomorrow/lee-su-threads) by meettomorrow (MIT License). ThreadsPulse's code is its own, but it follows that project's approach (label parsing, cache durations, the 1-hour rate-limit pause) and uses its default-username rule and animal word list. Its license is included in `ThirdPartyLicenses/lee-su-threads.txt`.
+
+Vietnamese translation by Tran Binh.
 
 ## Disclaimer
 

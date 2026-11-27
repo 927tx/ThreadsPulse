@@ -3261,6 +3261,7 @@ static BOOL TPTabSelectSuppressed(void) { return CFAbsoluteTimeGetCurrent() < gT
 // (sheet) form is blocked; the same controllers pushed from a profile or settings still open.
 static Class gTPUserRecsClass;
 static Class gTPRecAccountsClass;
+static Class gTPPrefollowClass, gTPPrefollowListClass, gTPFollowListPrefollowClass;
 
 static BOOL TPTreeContainsClass(UIViewController *vc, Class cls, int depth) {
     if (!vc || !cls || depth > 4) return NO;
@@ -3285,9 +3286,15 @@ static void TPDismissIfPresented(UIViewController *me) {
 %hook UIViewController
 - (void)presentViewController:(UIViewController *)vc animated:(BOOL)animated completion:(void (^)(void))completion {
     if (([TPPrefs boolForKey:TPKeyHideFollowSuggest] && TPTreeContainsClass(vc, gTPUserRecsClass, 0))
-        || ([TPPrefs boolForKey:TPKeyHideIGConnections] && TPTreeContainsClass(vc, gTPRecAccountsClass, 0))) {
+        || ([TPPrefs boolForKey:TPKeyHideIGConnections] && (TPTreeContainsClass(vc, gTPRecAccountsClass, 0)
+            || TPTreeContainsClass(vc, gTPPrefollowClass, 0) || TPTreeContainsClass(vc, gTPPrefollowListClass, 0)
+            || TPTreeContainsClass(vc, gTPFollowListPrefollowClass, 0)))) {
         TPDebug(TPL(@"Follow suggestions hidden"));
         return;
+    }
+    if ([TPPrefs boolForKey:TPKeyDebugToast] && vc && ![vc isKindOfClass:[UIAlertController class]]) {
+        UIViewController *shown = [vc isKindOfClass:[UINavigationController class]] ? ((UINavigationController *)vc).viewControllers.firstObject ?: vc : vc;
+        TPDebug([@"present: " stringByAppendingString:NSStringFromClass(shown.class)]);
     }
     %orig;
 }
@@ -3301,6 +3308,29 @@ static void TPDismissIfPresented(UIViewController *me) {
 %end
 
 %hook _TtC22BCNRecommendedAccounts36BCNRecommendedAccountsViewController
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    if ([TPPrefs boolForKey:TPKeyHideIGConnections]) TPDismissIfPresented((UIViewController *)self);
+}
+%end
+
+// "Follow your Instagram connections" (with "How it works" and a search bar) is presented as
+// BCNFollowListPrefollowViewController in Threads 457; the BCNPrefollowing screens are its siblings.
+%hook _TtC13BCNFollowList36BCNFollowListPrefollowViewController
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    if ([TPPrefs boolForKey:TPKeyHideIGConnections]) TPDismissIfPresented((UIViewController *)self);
+}
+%end
+
+%hook _TtC15BCNPrefollowing29BCNPrefollowingViewController
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    if ([TPPrefs boolForKey:TPKeyHideIGConnections]) TPDismissIfPresented((UIViewController *)self);
+}
+%end
+
+%hook _TtC15BCNPrefollowing33BCNPrefollowingListViewController
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
     if ([TPPrefs boolForKey:TPKeyHideIGConnections]) TPDismissIfPresented((UIViewController *)self);
@@ -5830,7 +5860,7 @@ static void TPShowPostTextActions(UIView *cell, NSString *author, UIView *anchor
 
     [sheet addAction:[UIAlertAction actionWithTitle:TPL(@"Quick Translate") style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
         NSString *lang = NSLocale.preferredLanguages.firstObject ?: @"zh-TW";
-        NSString *tl = [lang hasPrefix:@"zh-Hans"] ? @"zh-CN" : ([lang hasPrefix:@"zh"] ? @"zh-TW" : ([lang hasPrefix:@"ja"] ? @"ja" : ([lang hasPrefix:@"ko"] ? @"ko" : @"en")));
+        NSString *tl = [lang hasPrefix:@"zh-Hans"] ? @"zh-CN" : ([lang hasPrefix:@"zh"] ? @"zh-TW" : ([lang hasPrefix:@"ja"] ? @"ja" : ([lang hasPrefix:@"ko"] ? @"ko" : ([lang hasPrefix:@"vi"] ? @"vi" : @"en"))));
         NSURLComponents *comps = [NSURLComponents componentsWithString:@"https://translate.google.com/"];
         comps.queryItems = @[
             [NSURLQueryItem queryItemWithName:@"sl" value:@"auto"],
@@ -5988,6 +6018,9 @@ static UIView *TPHeaderMoreButton(UIView *header) {
         %init(HomeFeedControls);
         gTPUserRecsClass = objc_getClass("_TtC22BCNUserRecommendations36BCNUserRecommendationsViewController");
         gTPRecAccountsClass = objc_getClass("_TtC22BCNRecommendedAccounts36BCNRecommendedAccountsViewController");
+        gTPPrefollowClass = objc_getClass("_TtC15BCNPrefollowing29BCNPrefollowingViewController");
+        gTPPrefollowListClass = objc_getClass("_TtC15BCNPrefollowing33BCNPrefollowingListViewController");
+        gTPFollowListPrefollowClass = objc_getClass("_TtC13BCNFollowList36BCNFollowListPrefollowViewController");
         %init(HideFollowSuggest);
         %init(PinTabBar);
         %init(HideFeedSuggestions);

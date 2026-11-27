@@ -52,10 +52,10 @@ static NSBundle *TPBundle(void) {
 
 // The language chosen in ThreadsPulse's settings, or the system's when "Follow System".
 static NSDictionary<NSString *, NSString *> *TPChosenTable(NSBundle *b) {
-    static NSString *const codes[] = { nil, @"en", @"zh-Hant", @"zh-Hans", @"ja", @"ko" };
-    static NSDictionary *tables[6];
+    static NSString *const codes[] = { nil, @"en", @"zh-Hant", @"zh-Hans", @"ja", @"ko", @"vi" };
+    static NSDictionary *tables[7];
     NSInteger lang = [[TPPrefs defaults] integerForKey:TPKeyLanguage];
-    if (lang < 1 || lang > 5) return nil;
+    if (lang < 1 || lang > 6) return nil;
     if (!tables[lang]) {
         NSString *path = [b pathForResource:@"Localizable" ofType:@"strings" inDirectory:nil
                             forLocalization:codes[lang]];

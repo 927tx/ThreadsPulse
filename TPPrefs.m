@@ -86,7 +86,7 @@ static NSInteger TPIntMax(NSString *key) {
     if ([key isEqualToString:TPKeyVideoFormat])  return 1;
     if ([key isEqualToString:TPKeyPlaySpeed])   return 3;
     if ([key isEqualToString:TPKeyExactTime])   return 3;
-    if ([key isEqualToString:TPKeyLanguage])    return 5;
+    if ([key isEqualToString:TPKeyLanguage])    return 6;
     if ([key isEqualToString:TPKeyClipboardMode])  return 1;
     if ([key isEqualToString:TPKeyBannerPosition]) return 2;
     if ([key isEqualToString:TPKeyKeepFeedLimit])  return 2;
