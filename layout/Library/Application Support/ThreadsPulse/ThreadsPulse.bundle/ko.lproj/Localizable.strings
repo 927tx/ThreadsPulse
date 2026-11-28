@@ -17,6 +17,8 @@
 "Language" = "언어";
 "Follow System" = "시스템 설정 따르기";
 "Running · %ld features on" = "작동 중 · 기능 %ld개 켜짐";
+"Ads blocked today" = "오늘 차단한 광고";
+"Posts hidden today" = "오늘 숨긴 게시물";
 "Coral" = "코랄";
 "Ocean" = "오션";
 "Mint" = "민트";
@@ -30,7 +32,7 @@
 "Ads & Privacy" = "광고 및 개인정보 보호";
 "Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "광고 숨기기를 켜거나 끈 뒤에는 피드를 새로고침하거나 앱을 다시 시작해야 적용됩니다.";
 "Block Ads" = "광고 숨기기";
-"Hide sponsored posts in the feed" = "피드의 광고 게시물을 숨깁니다";
+"Hide sponsored posts in the feed and between replies" = "피드와 답글 사이에 표시되는 광고 게시물을 숨깁니다";
 "Block Screenshot Detection" = "스크린샷 감지 끄기";
 "Threads won't know when you take a screenshot or record the screen" = "스크린샷이나 화면 녹화를 해도 Threads가 감지하지 못합니다";
 "Block Analytics" = "분석 데이터 전송 차단";
@@ -292,10 +294,6 @@
 "Like Confirmation" = "좋아요 확인";
 "Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "좋아요를 보내기 전에 확인 창을 띄웁니다. 취소할 때는 묻지 않습니다";
 "Post Time Format" = "게시 시간 형식";
-"Relative" = "상대 시간";
-"Date & Time" = "날짜";
-"With Year" = "연도 포함";
-"With Seconds" = "초 포함";
 "Keep Tab Bar Visible" = "탭 바 항상 표시";
 "Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "스크롤해도 아래쪽 탭 바가 숨겨지지 않습니다";
 "Copy Profile Info" = "프로필 정보 복사";
@@ -394,6 +392,11 @@
 "What's New" = "새로운 기능";
 "See what's new in this version" = "이 버전의 새로운 기능 보기";
 "What's New in ThreadsPulse %@" = "ThreadsPulse %@ 새로운 기능";
+"Build your own post time from relative time, weekday, date and time, in any order" = "상대 시간, 요일, 날짜, 시간을 원하는 순서로 조합해 게시물 시간을 표시";
+"See each kind of cache with its size and choose what to clear" = "캐시를 종류별로 크기와 함께 보여 주고 지울 항목을 고를 수 있습니다";
+"Today's Numbers" = "오늘의 통계";
+"The card at the top of the settings shows today's blocked ads and hidden posts" = "설정 상단 카드에 오늘 차단한 광고와 숨긴 게시물 수가 표시됩니다";
+"Ads between the replies of a thread are blocked too" = "스레드 답글 사이의 광고도 차단합니다";
 "Updated to the latest version" = "최신 버전으로 업데이트되었습니다";
 "Get Started" = "시작하기";
 
@@ -501,7 +504,7 @@
 "Clear All Rules?" = "모든 규칙을 지울까요?";
 "No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "아직 숨김 규칙이 없습니다.\n오른쪽 위 + 를 눌러 키워드, @사용자 이름, /정규식/ 을 추가하세요.";
 "Add Muted Rule" = "숨김 규칙 추가";
-"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "일반 키워드, @사용자 이름(작성자 숨김), /정규식/ 을 지원합니다";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once." = "일반 키워드, @사용자 이름(작성자 숨김), /정규식/ 을 지원합니다. 쉼표(, ，)로 구분하면 여러 개를 한 번에 추가할 수 있습니다.";
 "e.g. giveaway, @spammer, /promo\\d+/" = "예: 이벤트, @spammer, /promo\\d+/";
 "Add" = "추가";
 "Keyword" = "키워드";
@@ -548,11 +551,6 @@
 "Today %ld posts were hidden, most often for %@." = "오늘 %ld개의 게시물을 숨겼습니다. 가장 많은 이유는 %@입니다.";
 "Today %ld posts were hidden." = "오늘 %ld개의 게시물을 숨겼습니다.";
 "Join the Telegram Group" = "텔레그램 그룹 참여";
-"Follow downloads, retry failed ones and browse the files you saved" = "다운로드 진행 상황을 확인하고 실패한 항목을 다시 시도하며 저장한 파일을 볼 수 있습니다";
-"Save every photo and video in a thread, replies included, with one tap" = "답글을 포함한 스레드의 모든 사진과 동영상을 한 번에 저장";
-"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "키워드, @계정, /정규식/ 으로 게시물과 답글을 숨깁니다. 계속 또는 일정 기간";
-"Post Text Menu" = "게시물 본문 메뉴";
-"Long-press “⋯” on a post to select, translate, copy or mute its text" = "게시물의 「⋯」를 길게 누르면 본문을 선택, 번역, 복사하거나 숨길 수 있습니다";
 "New" = "NEW";
 "Show This Post" = "이 게시물 보기";
 "Mute for 24 Hours Only" = "24시간만 숨기도록 변경";
@@ -607,3 +605,43 @@
 "This post is already in the download queue." = "이 게시물은 이미 다운로드 대기열에 있습니다.";
 "You downloaded this post on %@." = "%@에 이 게시물을 다운로드했습니다.";
 "Open Download Manager" = "다운로드 관리 열기";
+
+/* 캐시 지우기 페이지 */
+"Temporary Files" = "임시 파일";
+"Network Cache" = "네트워크 캐시";
+"ThreadsPulse Download Leftovers" = "ThreadsPulse 다운로드 임시 파일";
+"Image Cache" = "이미지 캐시";
+"Video Cache" = "동영상 캐시";
+"Other Threads Cache" = "기타 Threads 캐시";
+"Files Threads leaves behind while opening and sharing" = "Threads가 열기·공유할 때 남긴 파일";
+"Server responses Threads has saved" = "Threads가 저장한 서버 응답";
+"Left over from downloads and conversions. Files kept in the download manager aren't touched" = "다운로드와 변환 중 남은 파일입니다. 다운로드 관리자에 보관한 파일은 지워지지 않습니다";
+"Profile pictures and photos you've viewed" = "본 프로필 사진과 게시물 사진";
+"Videos and audio you've played" = "재생한 동영상과 오디오";
+"Feed data and other files Threads keeps" = "피드 데이터와 Threads가 보관하는 기타 파일";
+"%@ selected" = "%@ 선택됨";
+"Measuring…" = "계산 중…";
+"%@ in total" = "총 %@";
+"Cleared Right Away" = "바로 지우기";
+"Cleared After Reopening Threads" = "Threads를 다시 연 후 지우기";
+"Good to Know" = "참고";
+"Temporary files and download leftovers can't be cleared while a download is in progress." = "다운로드 중에는 임시 파일과 다운로드 임시 파일을 지울 수 없습니다.";
+"Threads is using these while it runs, so it closes and finishes clearing them the next time you open it." = "Threads 실행 중에 사용되는 파일이므로 앱을 닫고 다음에 열 때 삭제를 완료합니다.";
+"Your login, settings, drafts and download history aren't cleared." = "로그인 정보, 설정, 임시 저장 글, 다운로드 기록은 지워지지 않습니다.";
+"Right after clearing, images and videos load a little slower while Threads downloads them again." = "지운 직후에는 이미지와 동영상을 다시 받아야 하므로 로딩이 조금 느려집니다.";
+"Clear %@" = "%@ 지우기";
+"Copy Folder List" = "폴더 목록 복사";
+
+/* 게시물 시간 형식 */
+"Relative Time" = "상대 시간";
+"Weekday" = "요일";
+"Date" = "날짜";
+"Time" = "시간";
+"Year" = "연도";
+"Never" = "표시 안 함";
+"Earlier Years" = "올해가 아닐 때만";
+"Always" = "항상 표시";
+"Threads' own time, like 3h" = "Threads 원래 시간 표시(예: 3시간)";
+"Right before or after Time, the two are shown together" = "시간 바로 앞이나 뒤에 있으면 함께 표시됩니다";
+"Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time." = "항목을 탭하면 켜거나 끄고, ≡를 드래그하면 순서를 바꿀 수 있습니다. 상대 시간만 켜면 Threads 원래 시간이 표시됩니다.";
+"After a change, reopen Threads to apply it to every post." = "변경 후 Threads를 다시 열면 모든 게시물에 적용됩니다.";

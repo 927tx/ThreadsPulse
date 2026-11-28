@@ -6,7 +6,7 @@
 
 static NSString *const kTPWelcomeShownKey = @"tp_welcome_shown";
 static NSString *const kTPWhatsNewKey     = @"tp_whats_new_seen";
-static NSString *const kTPWhatsNewVersion = @"1.32";   // bump with each release that has a What's New
+static NSString *const kTPWhatsNewVersion = @"1.33";   // bump with each release that has a What's New
 
 @interface TPWelcomeViewController ()
 @property (nonatomic) BOOL whatsNew;
@@ -26,11 +26,11 @@ static NSString *const kTPWhatsNewVersion = @"1.32";   // bump with each release
 // Retries a few times if another view controller is being presented at launch.
 + (void)presentIfNeeded {
     NSUserDefaults *d = [TPPrefs defaults];
-    // Updated from a version before 1.32 (the welcome was already seen on an earlier install):
+    // Updated from a version before 1.33 (the welcome was already seen on an earlier install):
     // mark this release's new settings in the settings until they've been seen. Not on a new
     // install, where everything is new. Decided once, on the first launch of this version.
-    if (![d objectForKey:@"tp_new_badges_1_32"])
-        [d setBool:[TPPrefs boolForKey:kTPWelcomeShownKey] forKey:@"tp_new_badges_1_32"];
+    if (![d objectForKey:@"tp_new_badges_1_33"])
+        [d setBool:[TPPrefs boolForKey:kTPWelcomeShownKey] forKey:@"tp_new_badges_1_33"];
     BOOL whatsNew = NO;
     if ([TPPrefs boolForKey:kTPWelcomeShownKey]) {
         if ([[d stringForKey:kTPWhatsNewKey] isEqualToString:kTPWhatsNewVersion]) return;
@@ -96,14 +96,14 @@ static NSString *const kTPWhatsNewVersion = @"1.32";   // bump with each release
     [stack setCustomSpacing:28 afterView:hero];
 
     if (self.whatsNew) {
-        [stack addArrangedSubview:[self cardWithSymbol:@"tray.full" title:TPL(@"Download Manager")
-            detail:TPL(@"Follow downloads, retry failed ones and browse the files you saved") accessory:nil]];
-        [stack addArrangedSubview:[self cardWithSymbol:@"square.and.arrow.down.on.square" title:TPL(@"Download Thread")
-            detail:TPL(@"Save every photo and video in a thread, replies included, with one tap") accessory:nil]];
-        [stack addArrangedSubview:[self cardWithSymbol:@"text.badge.minus" title:TPL(@"Muted Keywords")
-            detail:TPL(@"Hide posts and replies by keyword, @author or /regex/, for good or for a while") accessory:nil]];
-        [stack addArrangedSubview:[self cardWithSymbol:@"text.quote" title:TPL(@"Post Text Menu")
-            detail:TPL(@"Long-press “⋯” on a post to select, translate, copy or mute its text") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"clock" title:TPL(@"Post Time Format")
+            detail:TPL(@"Build your own post time from relative time, weekday, date and time, in any order") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"trash" title:TPL(@"Clear Cache")
+            detail:TPL(@"See each kind of cache with its size and choose what to clear") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"chart.bar" title:TPL(@"Today's Numbers")
+            detail:TPL(@"The card at the top of the settings shows today's blocked ads and hidden posts") accessory:nil]];
+        [stack addArrangedSubview:[self cardWithSymbol:@"shield" title:TPL(@"Block Ads")
+            detail:TPL(@"Ads between the replies of a thread are blocked too") accessory:nil]];
     } else {
     UILabel *heading = [UILabel new];
     heading.text = TPL(@"How to Open Settings");
@@ -171,10 +171,12 @@ static NSString *const kTPWhatsNewVersion = @"1.32";   // bump with each release
     [_animated addObject:bottom];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    // Just below required: only the 520 pt cap (iPad) may make them narrower. At the default high
+    // priority a long line of text could push the cards wider than the screen.
     NSLayoutConstraint *fill = [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-40];
-    fill.priority = UILayoutPriorityDefaultHigh;
+    fill.priority = UILayoutPriorityRequired - 1;
     NSLayoutConstraint *bottomFill = [bottom.widthAnchor constraintEqualToAnchor:safe.widthAnchor constant:-40];
-    bottomFill.priority = UILayoutPriorityDefaultHigh;
+    bottomFill.priority = UILayoutPriorityRequired - 1;
     [NSLayoutConstraint activateConstraints:@[
         [scroll.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [scroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
@@ -351,6 +353,7 @@ static NSString *const kTPWhatsNewVersion = @"1.32";   // bump with each release
     label.numberOfLines = 0;
     label.lineBreakMode = NSLineBreakByWordWrapping;
     [label setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+    [label setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     [_wrapping addObject:label];
 }
 

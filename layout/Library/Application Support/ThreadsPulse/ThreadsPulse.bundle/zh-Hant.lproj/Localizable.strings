@@ -17,6 +17,8 @@
 "Language" = "語言";
 "Follow System" = "跟隨系統";
 "Running · %ld features on" = "運作中 · 已開啟 %ld 項功能";
+"Ads blocked today" = "今日擋下的廣告";
+"Posts hidden today" = "今日隱藏的串文";
 "Coral" = "珊瑚";
 "Ocean" = "海洋";
 "Mint" = "薄荷";
@@ -30,7 +32,7 @@
 "Ads & Privacy" = "廣告與隱私";
 "Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "開啟或關閉去除廣告後，需重新整理動態或重啟 App 才會生效。";
 "Block Ads" = "去除廣告";
-"Hide sponsored posts in the feed" = "隱藏動態裡的贊助串文";
+"Hide sponsored posts in the feed and between replies" = "隱藏動態中及回覆之間的贊助串文";
 "Block Screenshot Detection" = "停用截圖偵測";
 "Threads won't know when you take a screenshot or record the screen" = "截圖或錄影時，Threads 不會偵測到";
 "Block Analytics" = "阻擋分析回傳";
@@ -292,10 +294,6 @@
 "Like Confirmation" = "按讚確認";
 "Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "按讚前先顯示確認，收回讚時不會詢問";
 "Post Time Format" = "串文時間格式";
-"Relative" = "相對時間";
-"Date & Time" = "日期時間";
-"With Year" = "含年份";
-"With Seconds" = "含秒";
 "Keep Tab Bar Visible" = "固定底部標籤列";
 "Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "滑動時底部標籤列不會自動隱藏";
 "Copy Profile Info" = "複製個人檔案資訊";
@@ -394,6 +392,11 @@
 "What's New" = "新功能介紹";
 "See what's new in this version" = "查看這個版本的新功能";
 "What's New in ThreadsPulse %@" = "ThreadsPulse %@ 新功能";
+"Build your own post time from relative time, weekday, date and time, in any order" = "用相對時間、星期、日期與時間自由組合串文時間，順序也能調整";
+"See each kind of cache with its size and choose what to clear" = "依類型顯示快取大小，自行選擇要清除哪些";
+"Today's Numbers" = "今日統計";
+"The card at the top of the settings shows today's blocked ads and hidden posts" = "設定最上方的資訊卡會顯示今天擋下的廣告與隱藏的串文";
+"Ads between the replies of a thread are blocked too" = "串文回覆之間的廣告也會擋掉";
 "Updated to the latest version" = "已更新到最新版本";
 "Get Started" = "開始使用";
 
@@ -501,7 +504,7 @@
 "Clear All Rules?" = "清除全部規則？";
 "No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "尚未新增屏蔽規則。\n點選右上角 + 可新增關鍵字、@帳號或 /正規表達式/。";
 "Add Muted Rule" = "新增屏蔽規則";
-"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "支援一般關鍵字、@帳號（屏蔽作者）或 /正規表達式/";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once." = "支援一般關鍵字、@帳號（屏蔽作者）或 /正規表達式/。用逗號（, 或 ，）或頓號（、）分隔，可一次加入多個。";
 "e.g. giveaway, @spammer, /promo\\d+/" = "例如 業配, @spammer, /抽獎\\d+/";
 "Add" = "新增";
 "Keyword" = "關鍵字";
@@ -548,11 +551,6 @@
 "Today %ld posts were hidden, most often for %@." = "今天已隱藏 %ld 則串文，最常見的原因是%@。";
 "Today %ld posts were hidden." = "今天已隱藏 %ld 則串文。";
 "Join the Telegram Group" = "加入 Telegram 討論群";
-"Follow downloads, retry failed ones and browse the files you saved" = "查看下載進度、重試失敗項目，瀏覽已下載的檔案";
-"Save every photo and video in a thread, replies included, with one tap" = "一鍵下載整串所有圖片與影片（含回覆）";
-"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "依關鍵字、@帳號或 /正規表達式/ 隱藏串文與回覆，可永久或暫時屏蔽";
-"Post Text Menu" = "串文內容選單";
-"Long-press “⋯” on a post to select, translate, copy or mute its text" = "長按串文的「⋯」可選取、翻譯、複製內文或屏蔽";
 "New" = "新";
 "Show This Post" = "顯示這則串文";
 "Mute for 24 Hours Only" = "改為只屏蔽 24 小時";
@@ -607,3 +605,43 @@
 "This post is already in the download queue." = "這則串文已在下載佇列中。";
 "You downloaded this post on %@." = "你已在 %@ 下載過這則串文。";
 "Open Download Manager" = "開啟下載管理";
+
+/* 清除快取頁面 */
+"Temporary Files" = "暫存檔";
+"Network Cache" = "網路快取";
+"ThreadsPulse Download Leftovers" = "ThreadsPulse 下載暫存";
+"Image Cache" = "圖片快取";
+"Video Cache" = "影片快取";
+"Other Threads Cache" = "其他 Threads 快取";
+"Files Threads leaves behind while opening and sharing" = "Threads 開啟與分享時留下的檔案";
+"Server responses Threads has saved" = "Threads 儲存的伺服器回應";
+"Left over from downloads and conversions. Files kept in the download manager aren't touched" = "下載與轉檔留下的暫存，下載管理中保留的檔案不受影響";
+"Profile pictures and photos you've viewed" = "看過的大頭貼與相片";
+"Videos and audio you've played" = "播放過的影片與音訊";
+"Feed data and other files Threads keeps" = "動態資料與 Threads 保存的其他檔案";
+"%@ selected" = "已選取 %@";
+"Measuring…" = "計算中…";
+"%@ in total" = "共 %@";
+"Cleared Right Away" = "立即清除";
+"Cleared After Reopening Threads" = "重新開啟 Threads 後清除";
+"Good to Know" = "注意事項";
+"Temporary files and download leftovers can't be cleared while a download is in progress." = "下載進行中時無法清除暫存檔與下載暫存。";
+"Threads is using these while it runs, so it closes and finishes clearing them the next time you open it." = "Threads 執行時會使用這些檔案，因此會先關閉，下次開啟時完成清除。";
+"Your login, settings, drafts and download history aren't cleared." = "不會清除登入資訊、設定、草稿與下載紀錄。";
+"Right after clearing, images and videos load a little slower while Threads downloads them again." = "清除後剛開始瀏覽時，圖片與影片需要重新下載，載入會稍慢。";
+"Clear %@" = "清除 %@";
+"Copy Folder List" = "複製資料夾清單";
+
+/* 串文時間格式 */
+"Relative Time" = "相對時間";
+"Weekday" = "星期";
+"Date" = "日期";
+"Time" = "時間";
+"Year" = "年份";
+"Never" = "不顯示";
+"Earlier Years" = "非今年才顯示";
+"Always" = "一律顯示";
+"Threads' own time, like 3h" = "Threads 原本的時間，例如 3 小時";
+"Right before or after Time, the two are shown together" = "緊接在時間前後時，兩者會合併顯示";
+"Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time." = "點選項目即可開啟或關閉，拖曳 ≡ 可調整順序。只開啟相對時間時，會顯示 Threads 原本的時間。";
+"After a change, reopen Threads to apply it to every post." = "變更後重新開啟 Threads，即可套用到所有串文。";

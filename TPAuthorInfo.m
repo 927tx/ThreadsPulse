@@ -263,15 +263,16 @@ static void TPStore(NSString *pk, NSString *location, NSString *joined, NSString
     [NSNotificationCenter.defaultCenter postNotificationName:TPAuthorInfoDidUpdateNotification object:nil userInfo:@{}];
 }
 
-+ (NSUInteger)cachedCount { TPLoadCache(); return gCache.count; }
+// The same authors Location Stats and the backup count: expired entries and failed lookups left out.
++ (NSUInteger)cachedCount { return [self allEntries].count; }
 
 + (NSArray<NSDictionary *> *)allEntries {
     TPLoadCache();
     NSTimeInterval now = [NSDate date].timeIntervalSince1970;
     NSMutableArray *out = [NSMutableArray array];
     [gCache enumerateKeysAndObjectsUsingBlock:^(NSString *pk, NSDictionary *e, BOOL *stop) {
-        if ([e[@"x"] doubleValue] < now) return;
-        if (!e[@"location"] && !e[@"hidden"] && !e[@"joined"]) return;   // failed lookups
+        if ([e[@"x"] doubleValue] <= now) return;
+        if (![e[@"location"] length] && ![e[@"joined"] length] && ![e[@"hidden"] boolValue]) return;   // failed lookups
         NSMutableDictionary *m = [e mutableCopy];
         m[@"pk"] = pk;
         [out addObject:m];
@@ -1099,8 +1100,13 @@ static NSString *TPFlagForCountry(NSString *name) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableDictionary *m = [NSMutableDictionary dictionary];
-        NSArray *locales = @[@"zh_TW", @"zh_HK", @"zh_MO", @"zh_Hant", @"zh_Hans_CN", @"zh_Hans_SG", @"en_US", @"en_GB",
-                             @"ja_JP", @"ko_KR", NSLocale.currentLocale.localeIdentifier];
+        // Threads writes the country in its own display language, which can be any of these (and
+        // isn't always the device's region), so names in all of them are matched.
+        NSMutableArray *locales = [@[@"zh_TW", @"zh_HK", @"zh_MO", @"zh_Hant", @"zh_Hans_CN", @"zh_Hans_SG", @"en_US", @"en_GB",
+                                     @"ja_JP", @"ko_KR", @"vi_VN", @"th_TH", @"id_ID", @"ms_MY", @"fil_PH", @"es_ES", @"es_MX",
+                                     @"pt_BR", @"pt_PT", @"fr_FR", @"de_DE", @"it_IT", @"nl_NL", @"ru_RU", @"uk_UA", @"pl_PL",
+                                     @"tr_TR", @"ar", @"hi_IN", NSLocale.currentLocale.localeIdentifier] mutableCopy];
+        [locales addObjectsFromArray:NSLocale.preferredLanguages];
         for (NSString *lid in locales) {
             NSLocale *loc = [NSLocale localeWithLocaleIdentifier:lid];
             for (NSString *cc in NSLocale.ISOCountryCodes) {
@@ -1112,17 +1118,184 @@ static NSString *TPFlagForCountry(NSString *name) {
                                  @"南韓": @"KR", @"韓國": @"KR", @"北韓": @"KP", @"中國": @"CN", @"中國大陸": @"CN",
                                  @"香港": @"HK", @"澳門": @"MO", @"紐西蘭": @"NZ", @"新西蘭": @"NZ", @"英國": @"GB",
                                  @"美國": @"US", @"阿拉伯聯合大公國": @"AE", @"Taiwan": @"TW", @"South Korea": @"KR",
-                                 @"United States": @"US", @"United Kingdom": @"GB", @"Hong Kong": @"HK", @"Macau": @"MO" };
+                                 @"United States": @"US", @"United Kingdom": @"GB", @"Hong Kong": @"HK", @"Macau": @"MO",
+                                 @"澳洲": @"AU", @"中国大陆": @"CN", @"Mainland China": @"CN", @"China mainland": @"CN",
+                                 @"捷克共和國": @"CZ", @"捷克共和国": @"CZ", @"Czech Republic": @"CZ", @"Czechia": @"CZ",
+                                 @"チェコ共和国": @"CZ", @"체코 공화국": @"CZ", @"Cộng hòa Séc": @"CZ", @"Séc": @"CZ",
+                                 @"Úc": @"AU", @"Trung Quốc": @"CN", @"Trung Quốc Đại Lục": @"CN", @"Đài Loan": @"TW",
+                                 @"Türkiye": @"TR", @"Turkey": @"TR", @"Vietnam": @"VN", @"Viet Nam": @"VN", @"Việt Nam": @"VN" };
         [m addEntriesFromDictionary:extra];
+        // Spellings Threads uses that iOS's own country names don't cover (ISO-style English names,
+        // Japanese and Korean official forms and so on), cross-checked with lee-su-threads' list.
+        NSDictionary *alt = @{ @"阿联酋": @"AE",
+                                 @"antigua and barbuda": @"AG",
+                                 @"安吉拉": @"AI",
+                                 @"남극": @"AQ",
+                                 @"アメリカ領サモア": @"AS",
+                                 @"아메리칸사모아": @"AS",
+                                 @"澳大利亞": @"AU",
+                                 @"奥兰": @"AX",
+                                 @"奧蘭": @"AX",
+                                 @"bosnia and herzegovina": @"BA",
+                                 @"波赫": @"BA",
+                                 @"波黑": @"BA",
+                                 @"saint barthélemy": @"BL",
+                                 @"brunei darussalam": @"BN",
+                                 @"ブルネイ・ダルサラーム": @"BN",
+                                 @"bolivia, plurinational state of": @"BO",
+                                 @"ボリビア多民族国": @"BO",
+                                 @"bonaire, sint eustatius and saba": @"BQ",
+                                 @"ボネール、シント・ユースタティウスおよびサバ": @"BQ",
+                                 @"荷兰加勒比区": @"BQ",
+                                 @"보네르섬": @"BQ",
+                                 @"布韋島": @"BV",
+                                 @"ココス（キーリング）諸島": @"CC",
+                                 @"科科斯（基林）群島": @"CC",
+                                 @"congo, democratic republic of the": @"CD",
+                                 @"コンゴ民主共和国": @"CD",
+                                 @"刚果民主共和国": @"CD",
+                                 @"剛果民主共和國": @"CD",
+                                 @"콩고 민주 공화국": @"CD",
+                                 @"中非": @"CF",
+                                 @"중앙아프리카 공화국": @"CF",
+                                 @"congo": @"CG",
+                                 @"コンゴ共和国": @"CG",
+                                 @"刚果共和国": @"CG",
+                                 @"剛果共和國": @"CG",
+                                 @"콩고 공화국": @"CG",
+                                 @"côte d'ivoire": @"CI",
+                                 @"中華人民共和国": @"CN",
+                                 @"cabo verde": @"CV",
+                                 @"古拉索": @"CW",
+                                 @"도미니카 연방": @"DM",
+                                 @"多明尼加": @"DO",
+                                 @"多米尼加": @"DO",
+                                 @"에리트레아": @"ER",
+                                 @"falkland islands (malvinas)": @"FK",
+                                 @"フォークランド（マルビナス）諸島": @"FK",
+                                 @"micronesia, federated states of": @"FM",
+                                 @"密克罗尼西亚联邦": @"FM",
+                                 @"密克羅尼西亞聯邦": @"FM",
+                                 @"미크로네시아 연방": @"FM",
+                                 @"united kingdom of great britain and northern ireland": @"GB",
+                                 @"フランス領ギアナ": @"GF",
+                                 @"根西": @"GG",
+                                 @"건지섬": @"GG",
+                                 @"south georgia and the south sandwich islands": @"GS",
+                                 @"南喬治亞和南桑威奇群島": @"GS",
+                                 @"hong kong": @"HK",
+                                 @"hongkong": @"HK",
+                                 @"香港": @"HK",
+                                 @"홍콩": @"HK",
+                                 @"heard island and mcdonald islands": @"HM",
+                                 @"ハード島とマクドナルド諸島": @"HM",
+                                 @"赫德及麥當勞群島": @"HM",
+                                 @"イギリス領インド洋地域": @"IO",
+                                 @"iran, islamic republic of": @"IR",
+                                 @"イラン・イスラム共和国": @"IR",
+                                 @"泽西": @"JE",
+                                 @"澤西": @"JE",
+                                 @"저지섬": @"JE",
+                                 @"saint kitts and nevis": @"KN",
+                                 @"セントクリストファー・ネイビス": @"KN",
+                                 @"korea, democratic people's republic of": @"KP",
+                                 @"朝鮮民主主義人民共和国": @"KP",
+                                 @"조선민주주의인민공화국": @"KP",
+                                 @"korea, republic of": @"KR",
+                                 @"大韓民国": @"KR",
+                                 @"lao people's democratic republic": @"LA",
+                                 @"ラオス人民民主共和国": @"LA",
+                                 @"saint lucia": @"LC",
+                                 @"moldova, republic of": @"MD",
+                                 @"モルドバ共和国": @"MD",
+                                 @"saint martin (french part)": @"MF",
+                                 @"サン・マルタン（フランス領）": @"MF",
+                                 @"myanmar": @"MM",
+                                 @"ミャンマー": @"MM",
+                                 @"蒙古国": @"MN",
+                                 @"蒙古國": @"MN",
+                                 @"macao": @"MO",
+                                 @"マカオ": @"MO",
+                                 @"澳門": @"MO",
+                                 @"澳门": @"MO",
+                                 @"마카오": @"MO",
+                                 @"북마리아나 제도": @"MP",
+                                 @"몬트세랫": @"MS",
+                                 @"누벨칼레도니": @"NC",
+                                 @"紐埃": @"NU",
+                                 @"フランス領ポリネシア": @"PF",
+                                 @"saint pierre and miquelon": @"PM",
+                                 @"圣皮埃尔和密克隆": @"PM",
+                                 @"pitcairn": @"PN",
+                                 @"ピトケアン": @"PN",
+                                 @"palestine, state of": @"PS",
+                                 @"パレスチナ": @"PS",
+                                 @"巴勒斯坦": @"PS",
+                                 @"팔레스타인": @"PS",
+                                 @"russian federation": @"RU",
+                                 @"ロシア連邦": @"RU",
+                                 @"saint helena, ascension and tristan da cunha": @"SH",
+                                 @"セントヘレナ・アセンションおよびトリスタンダクーニャ": @"SH",
+                                 @"圣赫勒拿、阿森松和特里斯坦-达库尼亚": @"SH",
+                                 @"聖赫勒拿、亞森欣和崔斯坦達庫尼亞": @"SH",
+                                 @"svalbard and jan mayen": @"SJ",
+                                 @"スヴァールバル諸島およびヤンマイエン島": @"SJ",
+                                 @"斯瓦爾巴和揚馬延": @"SJ",
+                                 @"스발바르 얀마옌": @"SJ",
+                                 @"sao tome and principe": @"ST",
+                                 @"sint maarten (dutch part)": @"SX",
+                                 @"シント・マールテン（オランダ領）": @"SX",
+                                 @"syrian arab republic": @"SY",
+                                 @"シリア・アラブ共和国": @"SY",
+                                 @"turks and caicos islands": @"TC",
+                                 @"特克斯與凱科斯群島": @"TC",
+                                 @"フランス領南方・南極地域": @"TF",
+                                 @"法属南部和南极领地": @"TF",
+                                 @"法屬南部和南極領地": @"TF",
+                                 @"프랑스령 남방 및 남극 지역": @"TF",
+                                 @"托克勞": @"TK",
+                                 @"trinidad and tobago": @"TT",
+                                 @"台湾地区": @"TW",
+                                 @"tanzania, united republic of": @"TZ",
+                                 @"united states minor outlying islands": @"UM",
+                                 @"미국령 군소 제도": @"UM",
+                                 @"米国": @"US",
+                                 @"holy see": @"VA",
+                                 @"saint vincent and the grenadines": @"VC",
+                                 @"セントビンセント・グレナディーン": @"VC",
+                                 @"세인트빈센트 그레나딘": @"VC",
+                                 @"venezuela, bolivarian republic of": @"VE",
+                                 @"ベネズエラ・ボリバル共和国": @"VE",
+                                 @"virgin islands (british)": @"VG",
+                                 @"イギリス領ヴァージン諸島": @"VG",
+                                 @"virgin islands (u.s.)": @"VI",
+                                 @"アメリカ領ヴァージン諸島": @"VI",
+                                 @"viet nam": @"VN",
+                                 @"wallis and futuna": @"WF",
+                                 @"瓦利斯和富圖那": @"WF",
+                                 @"왈리스 푸투나": @"WF",
+                                 @"남아프리카 공화국": @"ZA"
+ };
+        [m addEntriesFromDictionary:alt];
+        // Keys are matched without regard to case.
+        NSMutableDictionary *lower = [NSMutableDictionary dictionaryWithCapacity:m.count];
+        [m enumerateKeysAndObjectsUsingBlock:^(NSString *k, NSString *v, BOOL *stop) { if (!lower[k.lowercaseString]) lower[k.lowercaseString] = v; }];
+        m = lower;
         map = m;
     });
-    NSString *key = [name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    NSString *key = [name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].lowercaseString;
     NSString *cc = map[key];
     if (!cc) {
-        for (NSString *suffix in @[@"特別行政區", @"特别行政区", @"SAR China", @"S.A.R."]) {
+        for (NSString *suffix in @[@"特別行政區", @"特别行政区", @"sar china", @"s.a.r."]) {
             NSRange r = [key rangeOfString:suffix];
             if (r.location != NSNotFound) { cc = map[[[key stringByReplacingCharactersInRange:r withString:@""] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]]; if (cc) break; }
         }
+    }
+    if (!cc) {
+        // "Name (Other Name)" or a different capitalization.
+        NSRange paren = [key rangeOfString:@" ("];
+        NSString *base = paren.location != NSNotFound ? [key substringToIndex:paren.location] : key;
+        cc = map[base];
     }
     if (cc.length != 2) return nil;
     NSMutableString *flag = [NSMutableString string];

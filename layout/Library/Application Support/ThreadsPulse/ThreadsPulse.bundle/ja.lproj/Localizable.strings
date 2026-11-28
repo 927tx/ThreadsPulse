@@ -17,6 +17,8 @@
 "Language" = "言語";
 "Follow System" = "システムに合わせる";
 "Running · %ld features on" = "動作中・%ld 個の機能がオン";
+"Ads blocked today" = "今日ブロックした広告";
+"Posts hidden today" = "今日非表示にした投稿";
 "Coral" = "コーラル";
 "Ocean" = "オーシャン";
 "Mint" = "ミント";
@@ -30,7 +32,7 @@
 "Ads & Privacy" = "広告とプライバシー";
 "Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "「広告を非表示」の切り替えは、フィードを更新するかアプリを再起動すると反映されます。";
 "Block Ads" = "広告を非表示";
-"Hide sponsored posts in the feed" = "フィードの広告投稿を非表示にします";
+"Hide sponsored posts in the feed and between replies" = "フィード内と返信の間に表示される広告投稿を非表示にします";
 "Block Screenshot Detection" = "スクリーンショット検知を無効化";
 "Threads won't know when you take a screenshot or record the screen" = "スクリーンショットや画面収録を Threads に検知されません";
 "Block Analytics" = "分析データの送信をブロック";
@@ -292,10 +294,6 @@
 "Like Confirmation" = "いいねの確認";
 "Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "いいねする前に確認を表示します。取り消し時は確認しません";
 "Post Time Format" = "投稿時刻の形式";
-"Relative" = "相対時間";
-"Date & Time" = "日時";
-"With Year" = "年つき";
-"With Seconds" = "秒つき";
 "Keep Tab Bar Visible" = "タブバーを常に表示";
 "Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "スクロールしても下部のタブバーが隠れません";
 "Copy Profile Info" = "プロフィール情報をコピー";
@@ -394,6 +392,11 @@
 "What's New" = "新機能";
 "See what's new in this version" = "このバージョンの新機能を見る";
 "What's New in ThreadsPulse %@" = "ThreadsPulse %@ の新機能";
+"Build your own post time from relative time, weekday, date and time, in any order" = "相対時間・曜日・日付・時刻を好きな順番で組み合わせて投稿時刻を表示";
+"See each kind of cache with its size and choose what to clear" = "キャッシュを種類ごとにサイズ付きで表示し、消去する項目を選べます";
+"Today's Numbers" = "今日の統計";
+"The card at the top of the settings shows today's blocked ads and hidden posts" = "設定上部のカードに、今日ブロックした広告と非表示にした投稿の数を表示";
+"Ads between the replies of a thread are blocked too" = "スレッドの返信の間に入る広告もブロック";
 "Updated to the latest version" = "最新バージョンにアップデートしました";
 "Get Started" = "はじめる";
 
@@ -501,7 +504,7 @@
 "Clear All Rules?" = "すべてのルールを消去しますか？";
 "No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "ミュートルールはまだありません。\n右上の + でキーワード、@ユーザー名、/正規表現/ を追加できます。";
 "Add Muted Rule" = "ミュートルールを追加";
-"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "通常のキーワード、@ユーザー名（作成者をミュート）、/正規表現/ に対応";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once." = "通常のキーワード、@ユーザー名（作成者をミュート）、/正規表現/ に対応しています。カンマ（, ，）や読点（、）で区切ると、まとめて追加できます。";
 "e.g. giveaway, @spammer, /promo\\d+/" = "例：プレゼント, @spammer, /promo\\d+/";
 "Add" = "追加";
 "Keyword" = "キーワード";
@@ -548,11 +551,6 @@
 "Today %ld posts were hidden, most often for %@." = "今日は %ld 件の投稿を非表示にしました。最も多い理由は%@です。";
 "Today %ld posts were hidden." = "今日は %ld 件の投稿を非表示にしました。";
 "Join the Telegram Group" = "Telegram グループに参加";
-"Follow downloads, retry failed ones and browse the files you saved" = "ダウンロードの進行状況を確認し、失敗した項目を再試行、保存したファイルを閲覧できます";
-"Save every photo and video in a thread, replies included, with one tap" = "スレッド内の画像と動画を返信も含めてワンタップで保存";
-"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "キーワード、@アカウント、/正規表現/ で投稿や返信を非表示にできます。ずっと、または一定期間";
-"Post Text Menu" = "投稿の本文メニュー";
-"Long-press “⋯” on a post to select, translate, copy or mute its text" = "投稿の「⋯」を長押しすると、本文の選択、翻訳、コピー、ミュートができます";
 "New" = "NEW";
 "Show This Post" = "この投稿を表示";
 "Mute for 24 Hours Only" = "24 時間だけミュートに変更";
@@ -607,3 +605,43 @@
 "This post is already in the download queue." = "この投稿はすでにダウンロードキューにあります。";
 "You downloaded this post on %@." = "この投稿は %@ にダウンロード済みです。";
 "Open Download Manager" = "ダウンロード管理を開く";
+
+/* キャッシュ消去ページ */
+"Temporary Files" = "一時ファイル";
+"Network Cache" = "ネットワークキャッシュ";
+"ThreadsPulse Download Leftovers" = "ThreadsPulse ダウンロードの一時ファイル";
+"Image Cache" = "画像キャッシュ";
+"Video Cache" = "動画キャッシュ";
+"Other Threads Cache" = "その他の Threads キャッシュ";
+"Files Threads leaves behind while opening and sharing" = "Threads でファイルを開いたり共有したりしたときに残ったファイル";
+"Server responses Threads has saved" = "Threads が保存したサーバーの応答";
+"Left over from downloads and conversions. Files kept in the download manager aren't touched" = "ダウンロードや変換で残ったファイル。ダウンロードマネージャーに保存したファイルは消えません";
+"Profile pictures and photos you've viewed" = "表示したプロフィール写真や投稿の写真";
+"Videos and audio you've played" = "再生した動画や音声";
+"Feed data and other files Threads keeps" = "フィードのデータや Threads が保存するその他のファイル";
+"%@ selected" = "%@ を選択中";
+"Measuring…" = "計算中…";
+"%@ in total" = "合計 %@";
+"Cleared Right Away" = "すぐに消去";
+"Cleared After Reopening Threads" = "Threads を開き直してから消去";
+"Good to Know" = "ご注意";
+"Temporary files and download leftovers can't be cleared while a download is in progress." = "ダウンロード中は一時ファイルとダウンロードの一時ファイルを消去できません。";
+"Threads is using these while it runs, so it closes and finishes clearing them the next time you open it." = "Threads の実行中に使われているため、いったん閉じて次に開いたときに消去を完了します。";
+"Your login, settings, drafts and download history aren't cleared." = "ログイン情報、設定、下書き、ダウンロード履歴は消去されません。";
+"Right after clearing, images and videos load a little slower while Threads downloads them again." = "消去直後は画像や動画を再ダウンロードするため、読み込みが少し遅くなります。";
+"Clear %@" = "%@ を消去";
+"Copy Folder List" = "フォルダ一覧をコピー";
+
+/* 投稿時刻の表示形式 */
+"Relative Time" = "相対時間";
+"Weekday" = "曜日";
+"Date" = "日付";
+"Time" = "時刻";
+"Year" = "年";
+"Never" = "表示しない";
+"Earlier Years" = "今年以外のみ";
+"Always" = "常に表示";
+"Threads' own time, like 3h" = "Threads 本来の表示（例：3時間）";
+"Right before or after Time, the two are shown together" = "時刻の直前・直後にあるときは、まとめて表示されます";
+"Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time." = "項目をタップするとオン／オフ、≡ をドラッグすると順番を変更できます。相対時間だけをオンにすると、Threads 本来の表示になります。";
+"After a change, reopen Threads to apply it to every post." = "変更後に Threads を開き直すと、すべての投稿に反映されます。";

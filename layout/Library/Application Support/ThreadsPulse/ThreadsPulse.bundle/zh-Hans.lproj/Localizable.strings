@@ -17,6 +17,8 @@
 "Language" = "语言";
 "Follow System" = "跟随系统";
 "Running · %ld features on" = "运行中 · 已开启 %ld 项功能";
+"Ads blocked today" = "今日拦截的广告";
+"Posts hidden today" = "今日隐藏的帖子";
 "Coral" = "珊瑚";
 "Ocean" = "海洋";
 "Mint" = "薄荷";
@@ -30,7 +32,7 @@
 "Ads & Privacy" = "广告与隐私";
 "Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "开启或关闭去除广告后，需刷新动态或重启 App 才会生效。";
 "Block Ads" = "去除广告";
-"Hide sponsored posts in the feed" = "隐藏动态里的广告帖子";
+"Hide sponsored posts in the feed and between replies" = "隐藏动态中及回复之间的广告帖子";
 "Block Screenshot Detection" = "停用截屏检测";
 "Threads won't know when you take a screenshot or record the screen" = "截屏或录屏时，Threads 不会检测到";
 "Block Analytics" = "阻止分析数据上报";
@@ -292,10 +294,6 @@
 "Like Confirmation" = "点赞确认";
 "Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "点赞前先显示确认，取消点赞时不会询问";
 "Post Time Format" = "帖子时间格式";
-"Relative" = "相对时间";
-"Date & Time" = "日期时间";
-"With Year" = "含年份";
-"With Seconds" = "含秒";
 "Keep Tab Bar Visible" = "固定底部标签栏";
 "Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "滑动时底部标签栏不会自动隐藏";
 "Copy Profile Info" = "复制个人主页信息";
@@ -394,6 +392,11 @@
 "What's New" = "新功能介绍";
 "See what's new in this version" = "查看此版本的新功能";
 "What's New in ThreadsPulse %@" = "ThreadsPulse %@ 新功能";
+"Build your own post time from relative time, weekday, date and time, in any order" = "用相对时间、星期、日期与时间自由组合帖子时间，顺序也能调整";
+"See each kind of cache with its size and choose what to clear" = "按类型显示缓存大小，自行选择要清除哪些";
+"Today's Numbers" = "今日统计";
+"The card at the top of the settings shows today's blocked ads and hidden posts" = "设置顶部的信息卡会显示今天拦截的广告与隐藏的帖子";
+"Ads between the replies of a thread are blocked too" = "帖子回复之间的广告也会拦截";
 "Updated to the latest version" = "已更新到最新版本";
 "Get Started" = "开始使用";
 
@@ -501,7 +504,7 @@
 "Clear All Rules?" = "清除全部规则？";
 "No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "尚未添加屏蔽规则。\n点击右上角 + 可添加关键词、@账号或 /正则表达式/。";
 "Add Muted Rule" = "添加屏蔽规则";
-"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "支持普通关键词、@账号（屏蔽作者）或 /正则表达式/";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once." = "支持普通关键词、@账号（屏蔽作者）或 /正则表达式/。用逗号（, 或 ，）或顿号（、）分隔，可一次添加多个。";
 "e.g. giveaway, @spammer, /promo\\d+/" = "例如 广告, @spammer, /抽奖\\d+/";
 "Add" = "添加";
 "Keyword" = "关键词";
@@ -548,11 +551,6 @@
 "Today %ld posts were hidden, most often for %@." = "今天已隐藏 %ld 条帖子，最常见的原因是%@。";
 "Today %ld posts were hidden." = "今天已隐藏 %ld 条帖子。";
 "Join the Telegram Group" = "加入 Telegram 讨论群";
-"Follow downloads, retry failed ones and browse the files you saved" = "查看下载进度、重试失败项目，浏览已下载的文件";
-"Save every photo and video in a thread, replies included, with one tap" = "一键下载整串所有图片与视频（含回复）";
-"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "按关键词、@账号或 /正则表达式/ 隐藏帖子与回复，可永久或暂时屏蔽";
-"Post Text Menu" = "帖子内容菜单";
-"Long-press “⋯” on a post to select, translate, copy or mute its text" = "长按帖子的“⋯”可选取、翻译、复制正文或屏蔽";
 "New" = "新";
 "Show This Post" = "显示这条帖子";
 "Mute for 24 Hours Only" = "改为只屏蔽 24 小时";
@@ -607,3 +605,43 @@
 "This post is already in the download queue." = "这条帖子已在下载队列中。";
 "You downloaded this post on %@." = "你已在 %@ 下载过这条帖子。";
 "Open Download Manager" = "打开下载管理";
+
+/* 清除缓存页面 */
+"Temporary Files" = "临时文件";
+"Network Cache" = "网络缓存";
+"ThreadsPulse Download Leftovers" = "ThreadsPulse 下载临时文件";
+"Image Cache" = "图片缓存";
+"Video Cache" = "视频缓存";
+"Other Threads Cache" = "其他 Threads 缓存";
+"Files Threads leaves behind while opening and sharing" = "Threads 打开与分享时留下的文件";
+"Server responses Threads has saved" = "Threads 保存的服务器响应";
+"Left over from downloads and conversions. Files kept in the download manager aren't touched" = "下载与转码留下的临时文件，下载管理中保留的文件不受影响";
+"Profile pictures and photos you've viewed" = "看过的头像与照片";
+"Videos and audio you've played" = "播放过的视频与音频";
+"Feed data and other files Threads keeps" = "动态数据与 Threads 保存的其他文件";
+"%@ selected" = "已选择 %@";
+"Measuring…" = "计算中…";
+"%@ in total" = "共 %@";
+"Cleared Right Away" = "立即清除";
+"Cleared After Reopening Threads" = "重新打开 Threads 后清除";
+"Good to Know" = "注意事项";
+"Temporary files and download leftovers can't be cleared while a download is in progress." = "下载进行中时无法清除临时文件与下载临时文件。";
+"Threads is using these while it runs, so it closes and finishes clearing them the next time you open it." = "Threads 运行时会使用这些文件，因此会先关闭，下次打开时完成清除。";
+"Your login, settings, drafts and download history aren't cleared." = "不会清除登录信息、设置、草稿与下载记录。";
+"Right after clearing, images and videos load a little slower while Threads downloads them again." = "清除后刚开始浏览时，图片与视频需要重新下载，加载会稍慢。";
+"Clear %@" = "清除 %@";
+"Copy Folder List" = "复制文件夹列表";
+
+/* 帖子时间格式 */
+"Relative Time" = "相对时间";
+"Weekday" = "星期";
+"Date" = "日期";
+"Time" = "时间";
+"Year" = "年份";
+"Never" = "不显示";
+"Earlier Years" = "非今年才显示";
+"Always" = "始终显示";
+"Threads' own time, like 3h" = "Threads 原本的时间，例如 3 小时";
+"Right before or after Time, the two are shown together" = "紧接在时间前后时，两者会合并显示";
+"Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time." = "点按项目即可开启或关闭，拖动 ≡ 可调整顺序。只开启相对时间时，会显示 Threads 原本的时间。";
+"After a change, reopen Threads to apply it to every post." = "更改后重新打开 Threads，即可应用到所有帖子。";

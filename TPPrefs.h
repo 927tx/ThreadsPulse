@@ -51,7 +51,6 @@ extern NSString *const TPKeyTabNoScrollTop;
 extern NSString *const TPKeyTabNoRefresh;
 
 extern NSString *const TPKeyPlaySpeed;
-extern NSString *const TPKeyExactTime;
 extern NSString *const TPKeyClipboardMode;
 extern NSString *const TPKeyBannerPosition;
 extern NSString *const TPKeyKeepFeedLimit;
@@ -67,6 +66,11 @@ extern NSString *const TPKeyNameParts;       // e.g. "author,date,time,code,inde
 extern NSString *const TPKeyNameSeparator;   // 0 "_", 1 "-", 2 space
 extern NSString *const TPKeyNameDateStyle;   // 0 20261126_153012, 1 2026-11-26_15-30-12
 extern NSString *const TPKeyPostDate;
+extern NSString *const TPKeyTimeParts;       // e.g. "relative,!weekday,date,time" (! = off); only "relative" on = Threads' own time
+extern NSString *const TPKeyTimeSeparator;   // 0 " · ", 1 " - ", 2 " | ", 3 space
+extern NSString *const TPKeyTimeYear;        // 0 never, 1 only for earlier years, 2 always
+extern NSString *const TPKeyTimeSeconds;
+extern NSString *const TPKeyTimeWeekdayFull;   // "星期六" instead of "週六"
 
 // Posted after setBool:/setInteger:, with userInfo @{ @"key": key }.
 extern NSString *const TPPrefsDidChangeNotification;
@@ -78,7 +82,7 @@ extern NSString *const TPPrefsDidChangeNotification;
 + (void)setInteger:(NSInteger)value forKey:(NSString *)key;
 + (NSString *)stringForKey:(NSString *)key;
 + (void)setString:(NSString *)value forKey:(NSString *)key;
-// Muted rules (keywords, @authors, /regex/). Rules are separated by commas or new lines, except
+// Muted rules (keywords, @authors, /regex/). Rules are separated by "," "，" "、" or new lines, except
 // that a /regex/ runs to its closing slash, so a regex may contain commas.
 + (NSArray<NSString *> *)parseMutedRules:(NSString *)raw;
 // Rules whose time limit has passed are left out (and forgotten on the next save).
@@ -91,7 +95,19 @@ extern NSString *const TPPrefsDidChangeNotification;
 + (void)recordFilteredPostWithReason:(NSString *)reason;
 // @{ count: NSNumber, top: reason or missing } for today.
 + (NSDictionary *)filterStatsToday;
+// Ads kept out of the feed and replies today (sponsored items dropped or not inserted), shown on
+// the settings card.
++ (void)recordBlockedAds:(NSInteger)count;
++ (NSInteger)blockedAdsToday;
 + (void)resetAll;
+// Post time format: parts as @{ id, on } in order (relative, weekday, date, time).
++ (NSArray<NSDictionary *> *)timeParts;
++ (void)setTimeParts:(NSArray<NSDictionary *> *)parts;   // nil resets
+// The post time as set in Post Time Format, or nil when it's Threads' own relative time.
+// `relative` is Threads' own text ("3h"), used for the relative part.
++ (NSString *)postTimeForDate:(NSDate *)date relative:(NSString *)relative;
+// Turns the old 4-option Post Time Format (tp_exact_time) into parts, once.
++ (void)migrateExactTime;
 + (NSUserDefaults *)defaults;
 
 + (NSData *)exportJSONData;

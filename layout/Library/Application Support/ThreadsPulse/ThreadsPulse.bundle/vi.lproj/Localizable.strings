@@ -17,6 +17,8 @@
 "Language" = "Ngôn ngữ";
 "Follow System" = "Theo hệ thống";
 "Running · %ld features on" = "Đang hoạt động · Đã bật %ld tính năng";
+"Ads blocked today" = "Quảng cáo đã chặn hôm nay";
+"Posts hidden today" = "Bài viết đã ẩn hôm nay";
 "Coral" = "San hô";
 "Ocean" = "Đại dương";
 "Mint" = "Bạc hà";
@@ -30,7 +32,7 @@
 "Ads & Privacy" = "Quảng cáo & quyền riêng tư";
 "Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "Bật hoặc tắt chặn quảng cáo sẽ có hiệu lực sau khi làm mới bảng tin hoặc khởi động lại app.";
 "Block Ads" = "Chặn quảng cáo";
-"Hide sponsored posts in the feed" = "Ẩn bài viết được tài trợ trong bảng tin";
+"Hide sponsored posts in the feed and between replies" = "Ẩn bài viết được tài trợ trong bảng tin và giữa các phản hồi";
 "Block Screenshot Detection" = "Tắt phát hiện chụp màn hình";
 "Threads won't know when you take a screenshot or record the screen" = "Khi chụp hoặc quay màn hình, Threads sẽ không phát hiện được";
 "Block Analytics" = "Chặn gửi phân tích";
@@ -292,10 +294,6 @@
 "Like Confirmation" = "Xác nhận thích";
 "Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "Hiện xác nhận trước khi thích để tránh chạm nhầm, bỏ thích sẽ không hỏi";
 "Post Time Format" = "Định dạng thời gian bài viết";
-"Relative" = "Thời gian tương đối";
-"Date & Time" = "Ngày giờ";
-"With Year" = "Có năm";
-"With Seconds" = "Có giây";
 "Keep Tab Bar Visible" = "Cố định thanh tab phía dưới";
 "Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "Khi cuộn, thanh tab phía dưới sẽ không tự ẩn";
 "Copy Profile Info" = "Sao chép thông tin trang cá nhân";
@@ -394,6 +392,11 @@
 "What's New" = "Tính năng mới";
 "See what's new in this version" = "Xem tính năng mới của phiên bản này";
 "What's New in ThreadsPulse %@" = "Tính năng mới của ThreadsPulse %@";
+"Build your own post time from relative time, weekday, date and time, in any order" = "Tự kết hợp thời gian bài viết từ thời gian tương đối, thứ, ngày và giờ theo thứ tự tùy ý";
+"See each kind of cache with its size and choose what to clear" = "Xem từng loại bộ nhớ đệm kèm dung lượng và chọn mục cần xóa";
+"Today's Numbers" = "Thống kê hôm nay";
+"The card at the top of the settings shows today's blocked ads and hidden posts" = "Thẻ ở đầu cài đặt hiển thị số quảng cáo đã chặn và bài viết đã ẩn hôm nay";
+"Ads between the replies of a thread are blocked too" = "Quảng cáo xen giữa các câu trả lời trong chuỗi cũng bị chặn";
 "Updated to the latest version" = "Đã cập nhật lên phiên bản mới nhất";
 "Get Started" = "Bắt đầu";
 
@@ -501,7 +504,7 @@
 "Clear All Rules?" = "Xóa tất cả quy tắc?";
 "No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "Chưa có quy tắc ẩn nào.\nChạm + ở góc trên bên phải để thêm từ khóa, @tài khoản hoặc /biểu thức chính quy/.";
 "Add Muted Rule" = "Thêm quy tắc ẩn";
-"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "Hỗ trợ từ khóa thông thường, @tài khoản (ẩn tác giả) hoặc /biểu thức chính quy/";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once." = "Hỗ trợ từ khóa thông thường, @tài khoản (ẩn tác giả) hoặc /biểu thức chính quy/. Phân tách bằng dấu phẩy để thêm nhiều mục cùng lúc.";
 "e.g. giveaway, @spammer, /promo\\d+/" = "ví dụ: quảng cáo, @spammer, /bốc thăm\\d+/";
 "Add" = "Thêm";
 "Keyword" = "Từ khóa";
@@ -548,11 +551,6 @@
 "Today %ld posts were hidden, most often for %@." = "Hôm nay đã ẩn %ld bài viết, lý do phổ biến nhất là %@.";
 "Today %ld posts were hidden." = "Hôm nay đã ẩn %ld bài viết.";
 "Join the Telegram Group" = "Tham gia nhóm Telegram";
-"Follow downloads, retry failed ones and browse the files you saved" = "Xem tiến trình tải, thử lại mục thất bại và duyệt các tệp đã tải";
-"Save every photo and video in a thread, replies included, with one tap" = "Tải mọi ảnh và video của cả chuỗi (kể cả phản hồi) chỉ với một chạm";
-"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "Ẩn bài viết và phản hồi theo từ khóa, @tài khoản hoặc /biểu thức chính quy/, vĩnh viễn hoặc tạm thời";
-"Post Text Menu" = "Menu nội dung bài viết";
-"Long-press “⋯” on a post to select, translate, copy or mute its text" = "Nhấn giữ “⋯” trên bài viết để chọn, dịch, sao chép nội dung hoặc ẩn";
 "New" = "Mới";
 "Show This Post" = "Hiện bài viết này";
 "Mute for 24 Hours Only" = "Đổi thành chỉ ẩn 24 giờ";
@@ -607,3 +605,43 @@
 "This post is already in the download queue." = "Bài viết này đã có trong hàng đợi tải.";
 "You downloaded this post on %@." = "Bạn đã tải bài viết này vào %@.";
 "Open Download Manager" = "Mở trình quản lý tải xuống";
+
+/* Trang xóa bộ nhớ đệm */
+"Temporary Files" = "Tệp tạm";
+"Network Cache" = "Bộ nhớ đệm mạng";
+"ThreadsPulse Download Leftovers" = "Tệp tạm tải xuống của ThreadsPulse";
+"Image Cache" = "Bộ nhớ đệm hình ảnh";
+"Video Cache" = "Bộ nhớ đệm video";
+"Other Threads Cache" = "Bộ nhớ đệm Threads khác";
+"Files Threads leaves behind while opening and sharing" = "Tệp Threads để lại khi mở và chia sẻ";
+"Server responses Threads has saved" = "Phản hồi máy chủ mà Threads đã lưu";
+"Left over from downloads and conversions. Files kept in the download manager aren't touched" = "Phần còn lại từ việc tải xuống và chuyển đổi. Tệp đã giữ trong trình quản lý tải xuống không bị ảnh hưởng";
+"Profile pictures and photos you've viewed" = "Ảnh đại diện và ảnh bạn đã xem";
+"Videos and audio you've played" = "Video và âm thanh bạn đã phát";
+"Feed data and other files Threads keeps" = "Dữ liệu bảng tin và các tệp khác Threads lưu giữ";
+"%@ selected" = "Đã chọn %@";
+"Measuring…" = "Đang tính…";
+"%@ in total" = "Tổng cộng %@";
+"Cleared Right Away" = "Xóa ngay";
+"Cleared After Reopening Threads" = "Xóa sau khi mở lại Threads";
+"Good to Know" = "Lưu ý";
+"Temporary files and download leftovers can't be cleared while a download is in progress." = "Không thể xóa tệp tạm và tệp tạm tải xuống khi đang tải xuống.";
+"Threads is using these while it runs, so it closes and finishes clearing them the next time you open it." = "Threads đang dùng các tệp này khi chạy, nên ứng dụng sẽ đóng lại và hoàn tất việc xóa khi bạn mở lại.";
+"Your login, settings, drafts and download history aren't cleared." = "Thông tin đăng nhập, cài đặt, bản nháp và lịch sử tải xuống không bị xóa.";
+"Right after clearing, images and videos load a little slower while Threads downloads them again." = "Ngay sau khi xóa, hình ảnh và video sẽ tải chậm hơn một chút vì Threads phải tải lại.";
+"Clear %@" = "Xóa %@";
+"Copy Folder List" = "Sao chép danh sách thư mục";
+
+/* Định dạng thời gian bài viết */
+"Relative Time" = "Thời gian tương đối";
+"Weekday" = "Thứ";
+"Date" = "Ngày";
+"Time" = "Giờ";
+"Year" = "Năm";
+"Never" = "Không hiện";
+"Earlier Years" = "Chỉ khi khác năm nay";
+"Always" = "Luôn hiện";
+"Threads' own time, like 3h" = "Thời gian gốc của Threads, ví dụ 3 giờ";
+"Right before or after Time, the two are shown together" = "Khi đứng ngay trước hoặc sau Giờ, cả hai sẽ được hiển thị cùng nhau";
+"Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time." = "Chạm vào một mục để bật hoặc tắt, kéo ≡ để đổi thứ tự. Khi chỉ bật Thời gian tương đối, Threads sẽ hiển thị thời gian gốc.";
+"After a change, reopen Threads to apply it to every post." = "Sau khi thay đổi, hãy mở lại Threads để áp dụng cho mọi bài viết.";

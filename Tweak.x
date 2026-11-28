@@ -83,6 +83,12 @@ static NSArray *TPCleanItems(NSArray *items) {
 // Ads are blocked at three stages: the ad request, the sponsored items that come back, and
 // the insertion into the feed. Any one stage is enough; the others cover Threads changing
 // which path it uses.
+// Today's count of ads kept out, for the card at the top of the settings page.
+static void TPCountAds(id items) {
+    NSInteger n = [items respondsToSelector:@selector(count)] ? (NSInteger)[items count] : 1;
+    [TPPrefs recordBlockedAds:n];
+}
+
 %group Ads
 
 %hook _TtC15IGBCNAdsManager15IGBCNAdsManager
@@ -91,7 +97,7 @@ static NSArray *TPCleanItems(NSArray *items) {
     %orig;
 }
 - (void)processSponsoredItems:(id)items projectedItems:(id)projected analyticsModule:(id)module {
-    if ([TPPrefs boolForKey:TPKeyBlockAds]) { TPDebug(TPL(@"Dropped sponsored items")); return; }
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { TPCountAds(items); TPDebug(TPL(@"Dropped sponsored items")); return; }
     %orig;
 }
 %end
@@ -99,15 +105,37 @@ static NSArray *TPCleanItems(NSArray *items) {
 %hook _TtC15IGBCNAdsManager37BCNMainFeedAdsInsertionSurfaceHandler
 - (void)adInsertionHandler:(id)handler shouldTryToInsertSponsoredItem:(id)item
           atInsertionIndex:(long long)index focusedIndex:(long long)focused insertionContext:(id)ctx {
-    if ([TPPrefs boolForKey:TPKeyBlockAds]) { TPDebug(TPL(@"Blocked ad insertion")); return; }
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { [TPPrefs recordBlockedAds:1]; TPDebug(TPL(@"Blocked ad insertion")); return; }
     %orig;
 }
 - (void)receivedSponsoredItems:(id)items intentAwareData:(id)data {
-    if ([TPPrefs boolForKey:TPKeyBlockAds]) return;
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { TPCountAds(items); return; }
     %orig;
 }
 - (void)adPlatformDidDeliverSponsoredItem:(id)item atAdRequestIndex:(long long)index {
-    if ([TPPrefs boolForKey:TPKeyBlockAds]) return;
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { [TPPrefs recordBlockedAds:1]; return; }
+    %orig;
+}
+%end
+
+// Ads between the replies of a thread page come through a separate path: the permalink's
+// insertion interceptor (its name carries a file hash, the same in Threads 456 and 457).
+%hook _TtC17BCNAdInsertionKitP33_E97DB50748E84759A32BD09B8A3DB09246BCNPermalinkAdsSynchronousInsertionInterceptor
+- (void)fetchSponsoredItemsForHostUnitItemId:(id)itemId hostPosition:(long long)position adRequestType:(long long)type {
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { TPDebug(TPL(@"Blocked an ad request")); return; }
+    %orig;
+}
+- (void)receivedSponsoredItems:(id)items intentAwareData:(id)data {
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { TPCountAds(items); TPDebug(TPL(@"Dropped sponsored items")); return; }
+    %orig;
+}
+- (void)adPlatformDidDeliverSponsoredItem:(id)item atAdRequestIndex:(long long)index {
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { [TPPrefs recordBlockedAds:1]; return; }
+    %orig;
+}
+- (void)adInsertionHandler:(id)handler shouldTryToInsertSponsoredItem:(id)item
+          atInsertionIndex:(long long)index focusedIndex:(long long)focused insertionContext:(id)ctx {
+    if ([TPPrefs boolForKey:TPKeyBlockAds]) { [TPPrefs recordBlockedAds:1]; TPDebug(TPL(@"Blocked ad insertion")); return; }
     %orig;
 }
 %end
@@ -2206,90 +2234,125 @@ static void TPMusicSoundTurnedOn(id player, BOOL enabled, BOOL wasEnabled) {
 
 %end
 
-// Exact post times: Threads builds "3h" style labels through NSDate's relative-date category,
-// so those methods return absolute dates instead.
-static NSString *TPExactString(NSDate *date) {
-    NSInteger mode = [TPPrefs integerForKey:TPKeyExactTime];
-    if (mode == 0 || ![date isKindOfClass:[NSDate class]]) return nil;
-    static NSDateFormatter *shortF, *yearF, *fullF;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        shortF = [NSDateFormatter new];
-        shortF.locale = NSLocale.autoupdatingCurrentLocale;
-        [shortF setLocalizedDateFormatFromTemplate:@"MMMd HHmm"];
-        yearF = [NSDateFormatter new];
-        yearF.locale = NSLocale.autoupdatingCurrentLocale;
-        [yearF setLocalizedDateFormatFromTemplate:@"yMMMd HHmm"];
-        fullF = [NSDateFormatter new];
-        fullF.locale = NSLocale.autoupdatingCurrentLocale;
-        [fullF setLocalizedDateFormatFromTemplate:@"yMMMd HHmmss"];
-    });
-    // 1 date & time · 2 with year · 3 with seconds
-    return [(mode == 1 ? shortF : mode == 2 ? yearF : fullF) stringFromDate:date];
+// Post time format: Threads builds "3h" style labels through NSDate's relative-date category, so
+// those methods return the format set in Post Time Format, which can include Threads' own text.
+// These methods call one another (one shortened form is built from another). Only the outermost
+// call is formatted: an inner call returns Threads' own text, or the outer call would take an
+// already formatted time as its relative part and repeat the date.
+static __thread int gTPTimeDepth;
+
+static NSString *TPExactString(NSDate *date, id relative) {
+    if (![date isKindOfClass:[NSDate class]]) return nil;
+    return [TPPrefs postTimeForDate:date relative:[relative isKindOfClass:[NSString class]] ? relative : nil];
 }
 
 %group Time
 
 %hook NSDate
 - (id)formattedDateRelativeToNow {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNow {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)partiallyShortenedFormattedDateRelativeToNow {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowIncludeYears {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowWithOptions:(unsigned long long)o {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)partiallyShortenedFormattedDateRelativeToNowHideSeconds:(BOOL)s options:(unsigned long long)o {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowWithFloorDaysWeeks:(BOOL)w {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)formattedDateRelativeToNowHideSeconds:(BOOL)s {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)formattedDateRelativeToNowHideSeconds:(BOOL)s shouldFloorDaysWeeks:(BOOL)w {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowHideSeconds:(BOOL)s {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowHideSeconds:(BOOL)s shouldFloorDaysWeeks:(BOOL)w {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowHideSeconds:(BOOL)s shouldFloorDaysWeeks:(BOOL)w options:(unsigned long long)o {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)shortenedFormattedDateRelativeToNowHideSeconds:(BOOL)s shouldFloorDaysWeeks:(BOOL)w includeYears:(BOOL)y options:(unsigned long long)o {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)formattedDateRelativeToNowIncludingYearsHideSeconds:(BOOL)s {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 - (id)formattedDateRelativeToNowIncludingYearsHideSeconds:(BOOL)s shouldFloorDaysWeeks:(BOOL)w {
-    NSString *e = TPExactString((NSDate *)self);
-    return e ?: %orig;
+    gTPTimeDepth++;
+    id orig = %orig;
+    gTPTimeDepth--;
+    if (gTPTimeDepth > 0) return orig;
+    return TPExactString((NSDate *)self, orig) ?: orig;
 }
 %end
 
@@ -3442,6 +3505,27 @@ static void TPDismissIfPresented(UIViewController *me) {
 - (void)layoutSubviews {
     %orig;
     ((UIView *)self).hidden = [TPPrefs boolForKey:TPKeyHidePostFeedback];
+}
+%end
+
+// Hiding the row's cell still left its height in the feed: the section keeps the row. The post's
+// own view model has a flag that leaves the row out altogether; IGListKit reads the model's
+// diff identifier before the rows are built, so the flag is set there.
+static void TPForceHideSeeMoreSeeLess(id vm) {
+    if (![TPPrefs boolForKey:TPKeyHidePostFeedback]) return;
+    uint8_t *hide = TPIvarAddress(vm, "shouldForceHideSeeMoreSeeLessUnit");
+    if (hide) *hide = 1;
+}
+
+%hook _TtC16BCNPostViewModel16BCNPostViewModel
+- (id)diffIdentifier {
+    TPForceHideSeeMoreSeeLess(self);
+    return %orig;
+}
+- (BOOL)isEqualToDiffableObject:(id)object {
+    TPForceHideSeeMoreSeeLess(self);
+    TPForceHideSeeMoreSeeLess(object);
+    return %orig;
 }
 %end
 
@@ -5995,13 +6079,10 @@ static UIView *TPHeaderMoreButton(UIView *header) {
         // Before Threads opens any cached files.
         [TPSettingsViewController runPendingCacheClear];
         TPSideloadFixInstall();
-        for (NSString *old in @[@"tp_last_logout", @"tp_logout_history", @"tp_logout_keychain", @"tp_swipe_lock_speed", @"tp_video_gestures", @"tp_parallel_download", @"tp_hide_reposts", @"tp_name_country"])
+        for (NSString *old in @[@"tp_last_logout", @"tp_logout_history", @"tp_logout_keychain", @"tp_swipe_lock_speed", @"tp_video_gestures", @"tp_parallel_download", @"tp_hide_reposts", @"tp_name_country", @"tp_new_settings_ui", @"tp_new_badges_1_32", @"tp_new_seen_1_32"])
             [[TPPrefs defaults] removeObjectForKey:old];
-        // 1.30 added "With Year" as option 2; "With Seconds" moved from 2 to 3.
-        if (![[TPPrefs defaults] boolForKey:@"tp_time_format_v2"]) {
-            if ([TPPrefs integerForKey:TPKeyExactTime] == 2) [TPPrefs setInteger:3 forKey:TPKeyExactTime];
-            [[TPPrefs defaults] setBool:YES forKey:@"tp_time_format_v2"];
-        }
+        // Post Time Format used to be 4 fixed options; it is now made of parts.
+        [TPPrefs migrateExactTime];
         %init(Ads);
         %init(Tracking);
         %init(Download);

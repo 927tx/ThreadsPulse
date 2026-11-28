@@ -2,7 +2,7 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-An iOS tweak for Threads (`com.burbn.barcelona`). Current version: **1.32.1**
+An iOS tweak for Threads (`com.burbn.barcelona`). Current version: **1.33.0**
 
 No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using GitHub Actions, then install it with your own signing tool.
 
@@ -10,7 +10,7 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 
 | Section | Feature | Description |
 |---|---|---|
-| Ads & Privacy | Block Ads | Hide sponsored posts in the feed |
+| Ads & Privacy | Block Ads | Hide sponsored posts in the feed and between replies |
 | | Block Screenshot Detection | Threads won't know when you take a screenshot or record the screen |
 | | Block Analytics | Stop Threads from sending usage data such as what you view, how long you stay and what you tap. Recommendations may become less accurate (off by default) |
 | | Remove URL Tracking | Strip `xmt`, `igshid`, `utm_*` and more when copying, sharing or opening links, and unwrap `l.threads.com` redirects |
@@ -54,7 +54,7 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 | | Instagram Connections Pop-ups | Stop "Follow your Instagram connections" from popping up automatically |
 | | Post Interest Prompts | Stop asking if you're interested in posts |
 | Hidden Items: Content Filters | Hide New Accounts | Hide feed posts from accounts joined within the last 2 months (requires Author Info) |
-| | Muted Keywords | Applies to the home feed and replies; supports keywords, @authors and /regex/ patterns (with examples), muted permanently, for 24 hours or for 7 days, with hit counts per rule and today's hidden count. A hidden post leaves a "1 post hidden · reason / Show" line |
+| | Muted Keywords | Applies to the home feed and replies; supports keywords, @authors and /regex/ patterns (with examples), several at once separated by `,` `，` or `、`, muted permanently, for 24 hours or for 7 days, with hit counts per rule and today's hidden count. A hidden post leaves a "1 post hidden · reason / Show" line |
 | Hidden Items: Interface Buttons | Search Button | Hide the search button on profiles (off by default) |
 | | Instagram Button | Hide the Instagram button on profiles (off by default) |
 | Links | Detect Copied Links | When you come back or switch accounts, detect a copied Threads link and open it |
@@ -66,19 +66,21 @@ No jailbreak needed: build your own Threads IPA with ThreadsPulse injected using
 | | Hide Typing Status | The other person won't see "…" while you write a message (off by default) |
 | | Keep Unsent Messages | When someone unsends a message, it stays in your chat marked "Unsent" (off by default) |
 | Interface & Interactions | Like Confirmation | Ask before a like is sent, to prevent accidental taps. Removing a like won't ask |
-| | Post Time Format | Relative / Date / + Year / + Seconds (the example under the options shows each format) |
+| | Post Time Format | Build your own: turn relative time, weekday, date and time on or off and drag them into order, pick the separator, when to show the year, a short or full weekday and whether to show seconds, with a live preview (e.g. `3h · 27 Nov 15:59`) |
 | | Keep Tab Bar Visible | Scrolling won't hide the tab bar at the bottom |
 | | Post Text Menu | Long-press "⋯" at the top-right of a post, or choose Post Text in the download button's menu: select text, quick-translate, copy, or mute the author or a keyword; for a quoted post it reads the quoted post |
 | | Copy Profile Info | On a profile, long-press the name, username, bio or profile picture to copy the name, username or bio |
 | | Long-Press Home Tab for Settings | Long-pressing the Home tab at the bottom opens ThreadsPulse settings instead (on by default) |
 | Backup | Export / Import Settings | Export your settings, muted rules and the authors already read to a JSON file, and import it after reinstalling or on another device; choose whether to include muted rules and author info, which are merged with what you have on import |
 | Advanced | Debug Hints | Turn on when a feature stops working. Hints show which features are active, to help report problems |
-| | Clear Cache | Shows the cache size up front; Threads closes and the cache is cleared when you reopen it. Your login and settings are kept |
+| | Clear Cache | Lists each kind of cache (temporary files, network cache, download leftovers, images, videos, other) with its size so you can pick what to clear. Temporary files and download leftovers clear right away; the rest clear after Threads reopens. iOS folders, media for messages being sent and per-account data are never touched. Your login, settings, drafts and download history are kept |
 | | Analytics Log | Shows the usage data Threads collects and what it contains: a ranking of events with plain-language descriptions and the latest payload of each, ready to copy. The log never leaves your device |
 | | Welcome Screen | See how to open ThreadsPulse settings again |
 | | What's New | See this version's new features again (shown once automatically after an update) |
 | | Check for Updates Automatically | Checks GitHub once a day and shows an alert when a new version is out, with Download, Later and Skip This Version |
 | | Sideload Compatibility Fix | Keeps you signed in and app group data working after re-signing. Only active on re-signed apps |
+
+**Today's Numbers**: the info card at the top of the settings page shows how many ads were kept out of the feed and replies today ("Off" while Block Ads is off) and how many posts were hidden by Muted Keywords and Hide New Accounts. Both reset each day.
 
 **Theme**: in the info card at the top of the settings page, tap a color dot to switch (Coral / Ocean / Mint / Lavender / Sakura / Amber). It only changes the color of ThreadsPulse buttons and settings.
 
@@ -267,7 +269,7 @@ ThreadsPulse/
 - **Copy Profile Info**: copies the name (`fullNameLabel`), username (`usernameLabel`, without `@`) or bio. Adds long-press gestures to the profile picture, `fullNameLabel`, `usernameLabel` and `IGProfileBioView` in `BCNProfileHeaderView`. The full bio comes from `_fullCollapsibleBioString` (when collapsed) or `_stringForView`. When the feature is off the gestures don't begin, so Threads' own long-press works as usual.
 - **Hide Search / Instagram Button**: hides `$__lazy_storage_$_searchButton` and `$__lazy_storage_$_appSwitcherButton` of `BCNProfileViewController` in `viewDidLayoutSubviews`, together with any wrapper view that holds only them. Inside a stack view the gap closes by itself; otherwise the buttons in the same row are shifted with a transform to fill it (when both are hidden, the larger shift is used rather than the sum).
 - **Suggested Accounts / Search Suggestions**: `BCNAYMFSectionController` (the "Suggested for you" unit) is checked by its `placement`: 0 (home feed) and 3 (profiles) follow Suggested Accounts, 2 (search page) follows Search Suggestions.
-- **Post Interest Prompts**: `BCNFeedItemSeeMoreSeeLessCell` returns a height of 0 and is hidden, and the batched prompt's section controller returns 0 items.
+- **Post Interest Prompts**: `shouldForceHideSeeMoreSeeLessUnit` of the post's `BCNPostViewModel` is set when IGListKit reads its `diffIdentifier`, so the row is left out without a gap; as a fallback `BCNFeedItemSeeMoreSeeLessCell` returns a height of 0 and is hidden, and the batched prompt's section controller returns 0 items.
 - **Open Links in External Browser**: hooks both `handleLinkWithURL:` methods of `BCNLinkHandlerImpl` (an ObjC protocol, so calls go through ObjC dispatch). `l.threads.com` redirect wrappers are unwrapped first; `threads.net` / `threads.com` and non-web links keep the original behaviour, everything else is opened with `-[UIApplication openURL:]` (tracking parameters are removed when Remove URL Tracking is on).
 - **Three-finger long-press**: the recognizer runs simultaneously with others and, once it begins, briefly disables the other recognizers on the same touches, so lifting your fingers doesn't also trigger the button you first touched.
 - **Long-Press Home Tab for Settings**: hooks `-[BCNLucentTabBarCoordinator handleTabBarLongPress:]`. When the press begins on the first (Home) tab button, ThreadsPulse settings open and the rest of that gesture is swallowed; long-presses on other tabs (e.g. switching accounts on the profile tab) work as usual.

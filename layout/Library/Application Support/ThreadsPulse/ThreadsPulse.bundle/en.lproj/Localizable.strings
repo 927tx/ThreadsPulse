@@ -17,6 +17,8 @@
 "Language" = "Language";
 "Follow System" = "Follow System";
 "Running · %ld features on" = "Running · %ld features on";
+"Ads blocked today" = "Ads blocked today";
+"Posts hidden today" = "Posts hidden today";
 "Coral" = "Coral";
 "Ocean" = "Ocean";
 "Mint" = "Mint";
@@ -30,7 +32,7 @@
 "Ads & Privacy" = "Ads & Privacy";
 "Turning ad blocking on or off takes effect after refreshing the feed or restarting the app." = "Turning Remove Ads on or off takes effect after refreshing the feed or restarting the app.";
 "Block Ads" = "Block Ads";
-"Hide sponsored posts in the feed" = "Hide sponsored posts in the feed";
+"Hide sponsored posts in the feed and between replies" = "Hide sponsored posts in the feed and between replies";
 "Block Screenshot Detection" = "Block Screenshot Detection";
 "Threads won't know when you take a screenshot or record the screen" = "Threads won't know when you take a screenshot or record the screen";
 "Block Analytics" = "Block Analytics";
@@ -292,10 +294,6 @@
 "Like Confirmation" = "Like Confirmation";
 "Ask before a like is sent, to prevent accidental taps. Removing a like won't ask." = "Asks for confirmation before liking; removing a like won't ask";
 "Post Time Format" = "Post Time Format";
-"Relative" = "Relative";
-"Date & Time" = "Date";
-"With Year" = "+ Year";
-"With Seconds" = "+ Seconds";
 "Keep Tab Bar Visible" = "Keep Tab Bar Visible";
 "Scrolling won't hide the tab bar at the bottom; it always stays on screen" = "The bottom tab bar won't hide while scrolling";
 "Copy Profile Info" = "Copy Profile Info";
@@ -394,6 +392,11 @@
 "What's New" = "What's New";
 "See what's new in this version" = "See what's new in this version";
 "What's New in ThreadsPulse %@" = "What's New in ThreadsPulse %@";
+"Build your own post time from relative time, weekday, date and time, in any order" = "Build your own post time from relative time, weekday, date and time, in any order";
+"See each kind of cache with its size and choose what to clear" = "See each kind of cache with its size and choose what to clear";
+"Today's Numbers" = "Today's Numbers";
+"The card at the top of the settings shows today's blocked ads and hidden posts" = "The card at the top of the settings shows today's blocked ads and hidden posts";
+"Ads between the replies of a thread are blocked too" = "Ads between the replies of a thread are blocked too";
 "Updated to the latest version" = "Updated to the latest version";
 "Get Started" = "Get Started";
 
@@ -501,7 +504,7 @@
 "Clear All Rules?" = "Clear All Rules?";
 "No muted rules yet.\nTap + to add a keyword, @username, or /regex/." = "No muted rules yet.\nTap + to add a keyword, @username, or /regex/.";
 "Add Muted Rule" = "Add Muted Rule";
-"Supports plain keywords, @username to mute an author, or /regex/ patterns." = "Supports plain keywords, @username to mute an author, or /regex/ patterns";
+"Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once." = "Supports plain keywords, @username to mute an author, or /regex/ patterns. Separate several with commas to add them at once.";
 "e.g. giveaway, @spammer, /promo\\d+/" = "e.g. giveaway, @spammer, /promo\\d+/";
 "Add" = "Add";
 "Keyword" = "Keyword";
@@ -548,11 +551,6 @@
 "Today %ld posts were hidden, most often for %@." = "Today %ld posts were hidden, most often for %@.";
 "Today %ld posts were hidden." = "Today %ld posts were hidden.";
 "Join the Telegram Group" = "Join the Telegram Group";
-"Follow downloads, retry failed ones and browse the files you saved" = "Follow downloads, retry failed ones and browse the files you saved";
-"Save every photo and video in a thread, replies included, with one tap" = "Save every photo and video in a thread, replies included, with one tap";
-"Hide posts and replies by keyword, @author or /regex/, for good or for a while" = "Hide posts and replies by keyword, @author or /regex/, for good or for a while";
-"Post Text Menu" = "Post Text Menu";
-"Long-press “⋯” on a post to select, translate, copy or mute its text" = "Long-press “⋯” on a post to select, translate, copy or mute its text";
 "New" = "New";
 "Show This Post" = "Show This Post";
 "Mute for 24 Hours Only" = "Mute for 24 Hours Only";
@@ -607,3 +605,43 @@
 "This post is already in the download queue." = "This post is already in the download queue.";
 "You downloaded this post on %@." = "You downloaded this post on %@.";
 "Open Download Manager" = "Open Download Manager";
+
+/* Clear cache page */
+"Temporary Files" = "Temporary Files";
+"Network Cache" = "Network Cache";
+"ThreadsPulse Download Leftovers" = "ThreadsPulse Download Leftovers";
+"Image Cache" = "Image Cache";
+"Video Cache" = "Video Cache";
+"Other Threads Cache" = "Other Threads Cache";
+"Files Threads leaves behind while opening and sharing" = "Files Threads leaves behind while opening and sharing";
+"Server responses Threads has saved" = "Server responses Threads has saved";
+"Left over from downloads and conversions. Files kept in the download manager aren't touched" = "Left over from downloads and conversions. Files kept in the download manager aren't touched";
+"Profile pictures and photos you've viewed" = "Profile pictures and photos you've viewed";
+"Videos and audio you've played" = "Videos and audio you've played";
+"Feed data and other files Threads keeps" = "Feed data and other files Threads keeps";
+"%@ selected" = "%@ selected";
+"Measuring…" = "Measuring…";
+"%@ in total" = "%@ in total";
+"Cleared Right Away" = "Cleared Right Away";
+"Cleared After Reopening Threads" = "Cleared After Reopening Threads";
+"Good to Know" = "Good to Know";
+"Temporary files and download leftovers can't be cleared while a download is in progress." = "Temporary files and download leftovers can't be cleared while a download is in progress.";
+"Threads is using these while it runs, so it closes and finishes clearing them the next time you open it." = "Threads is using these while it runs, so it closes and finishes clearing them the next time you open it.";
+"Your login, settings, drafts and download history aren't cleared." = "Your login, settings, drafts and download history aren't cleared.";
+"Right after clearing, images and videos load a little slower while Threads downloads them again." = "Right after clearing, images and videos load a little slower while Threads downloads them again.";
+"Clear %@" = "Clear %@";
+"Copy Folder List" = "Copy Folder List";
+
+/* Post time format */
+"Relative Time" = "Relative Time";
+"Weekday" = "Weekday";
+"Date" = "Date";
+"Time" = "Time";
+"Year" = "Year";
+"Never" = "Never";
+"Earlier Years" = "Earlier Years";
+"Always" = "Always";
+"Threads' own time, like 3h" = "Threads' own time, like 3h";
+"Right before or after Time, the two are shown together" = "Right before or after Time, the two are shown together";
+"Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time." = "Tap a part to turn it on or off, and drag ≡ to change the order. With only Relative Time on, Threads shows its own time.";
+"After a change, reopen Threads to apply it to every post." = "After a change, reopen Threads to apply it to every post.";

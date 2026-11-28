@@ -113,8 +113,9 @@ static NSString *const kHiddenGroup = @"␟hidden";
     NSMutableDictionary<NSString *, NSMutableArray *> *g = [NSMutableDictionary dictionary];
     NSArray *entries = [TPAuthorInfo allEntries];
     for (NSDictionary *e in entries) {
-        NSString *key = [e[@"location"] length] ? e[@"location"] : ([e[@"hidden"] boolValue] ? kHiddenGroup : nil);
-        if (!key) continue;
+        // Authors without a country (hidden, or Threads gave none) go under "Not shared", so the total
+        // matches the authors counted in Read Status & Cache.
+        NSString *key = [e[@"location"] length] ? e[@"location"] : kHiddenGroup;
         if (!g[key]) g[key] = [NSMutableArray array];
         [g[key] addObject:e];
     }
